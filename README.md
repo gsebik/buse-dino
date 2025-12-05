@@ -29,7 +29,7 @@ python3 dino.py --both
 # Custom framebuffer device
 python3 dino.py --fb-path /dev/fb1
 
-# Jump-only mode (no birds, no duck needed - for single button setups)
+# Jump-only mode (birds at jumpable height, no duck needed - for single button setups)
 python3 dino.py --no-duck
 ```
 
@@ -56,10 +56,12 @@ sudo journalctl -u buse-dino -f
 
 ## Game Features
 
-- Animated "PRESS ENTER" start screen
+- Animated start screen with anime-style eyes (16 different animations in random order)
 - Jumping dinosaur with running animation
-- Duck to avoid flying birds
-- Multiple obstacle types (cacti and birds)
+- Duck to avoid flying birds (or use --no-duck for jump-only mode)
+- Multiple obstacle types (cacti with L-shaped arms, birds)
 - Increasing difficulty as score grows
-- Game over screen with score display
-- Press Enter to restart after game over
+- Game over screen with score and high score display
+- Auto-returns to start screen after game over
+- 60 FPS smooth animations
+- 4x5 pixel font for clear text readability

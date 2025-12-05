@@ -37,13 +37,14 @@ FB_PATH = "/dev/fb0"
 BYTES_PER_ROW = WIDTH // 8
 BUFFER_SIZE = BYTES_PER_ROW * HEIGHT
 
-# Game physics
-GRAVITY = 0.5
-JUMP_VELOCITY = -3.5
+# Game physics (tuned for 60fps)
+# Lower gravity = longer air time, higher jump velocity = higher jump
+GRAVITY = 0.12
+JUMP_VELOCITY = -1.6
 GROUND_Y = HEIGHT - 1
 
 # Timing
-FRAME_INTERVAL = 0.033  # ~30 FPS
+FRAME_INTERVAL = 0.016  # ~60 FPS for smoother animations
 OBSTACLE_SPAWN_MIN = 1.5
 OBSTACLE_SPAWN_MAX = 3.0
 
@@ -134,45 +135,46 @@ BIRD_2 = [
     "X X",
 ]
 
-# 3x5 pixel font for text
+# 4x5 pixel font for text (wider and clearer)
 FONT = {
-    'P': [0b111, 0b101, 0b111, 0b100, 0b100],
-    'R': [0b110, 0b101, 0b110, 0b101, 0b101],
-    'E': [0b111, 0b100, 0b110, 0b100, 0b111],
-    'S': [0b011, 0b100, 0b010, 0b001, 0b110],
-    'N': [0b101, 0b111, 0b111, 0b101, 0b101],
-    'T': [0b111, 0b010, 0b010, 0b010, 0b010],
-    'O': [0b111, 0b101, 0b101, 0b101, 0b111],
-    'A': [0b010, 0b101, 0b111, 0b101, 0b101],
-    'G': [0b011, 0b100, 0b101, 0b101, 0b011],
-    'M': [0b101, 0b111, 0b111, 0b101, 0b101],
-    'V': [0b101, 0b101, 0b101, 0b101, 0b010],
-    'D': [0b110, 0b101, 0b101, 0b101, 0b110],
-    'I': [0b111, 0b010, 0b010, 0b010, 0b111],
-    'H': [0b101, 0b101, 0b111, 0b101, 0b101],
-    'C': [0b011, 0b100, 0b100, 0b100, 0b011],
-    'L': [0b100, 0b100, 0b100, 0b100, 0b111],
-    'Y': [0b101, 0b101, 0b010, 0b010, 0b010],
-    'B': [0b110, 0b101, 0b110, 0b101, 0b110],
-    'U': [0b101, 0b101, 0b101, 0b101, 0b111],
-    'W': [0b101, 0b101, 0b111, 0b111, 0b101],
-    'F': [0b111, 0b100, 0b110, 0b100, 0b100],
-    'K': [0b101, 0b101, 0b110, 0b101, 0b101],
-    'X': [0b101, 0b101, 0b010, 0b101, 0b101],
-    '!': [0b010, 0b010, 0b010, 0b000, 0b010],
-    '?': [0b110, 0b001, 0b010, 0b000, 0b010],
-    ' ': [0b000, 0b000, 0b000, 0b000, 0b000],
-    ':': [0b000, 0b010, 0b000, 0b010, 0b000],
-    '0': [0b111, 0b101, 0b101, 0b101, 0b111],
-    '1': [0b010, 0b110, 0b010, 0b010, 0b111],
-    '2': [0b111, 0b001, 0b111, 0b100, 0b111],
-    '3': [0b111, 0b001, 0b111, 0b001, 0b111],
-    '4': [0b101, 0b101, 0b111, 0b001, 0b001],
-    '5': [0b111, 0b100, 0b111, 0b001, 0b111],
-    '6': [0b111, 0b100, 0b111, 0b101, 0b111],
-    '7': [0b111, 0b001, 0b001, 0b001, 0b001],
-    '8': [0b111, 0b101, 0b111, 0b101, 0b111],
-    '9': [0b111, 0b101, 0b111, 0b001, 0b111],
+    'P': [0b1110, 0b1001, 0b1110, 0b1000, 0b1000],
+    'R': [0b1110, 0b1001, 0b1110, 0b1010, 0b1001],
+    'E': [0b1111, 0b1000, 0b1110, 0b1000, 0b1111],
+    'S': [0b0111, 0b1000, 0b0110, 0b0001, 0b1110],
+    'N': [0b1001, 0b1101, 0b1011, 0b1001, 0b1001],
+    'T': [0b1111, 0b0100, 0b0100, 0b0100, 0b0100],
+    'O': [0b0110, 0b1001, 0b1001, 0b1001, 0b0110],
+    'A': [0b0110, 0b1001, 0b1111, 0b1001, 0b1001],
+    'G': [0b0111, 0b1000, 0b1011, 0b1001, 0b0110],
+    'M': [0b1001, 0b1111, 0b1111, 0b1001, 0b1001],
+    'V': [0b1001, 0b1001, 0b1001, 0b0110, 0b0100],
+    'D': [0b1110, 0b1001, 0b1001, 0b1001, 0b1110],
+    'I': [0b1110, 0b0100, 0b0100, 0b0100, 0b1110],
+    'H': [0b1001, 0b1001, 0b1111, 0b1001, 0b1001],
+    'C': [0b0111, 0b1000, 0b1000, 0b1000, 0b0111],
+    'L': [0b1000, 0b1000, 0b1000, 0b1000, 0b1111],
+    'Y': [0b1001, 0b1001, 0b0110, 0b0100, 0b0100],
+    'B': [0b1110, 0b1001, 0b1110, 0b1001, 0b1110],
+    'U': [0b1001, 0b1001, 0b1001, 0b1001, 0b0110],
+    'W': [0b1001, 0b1001, 0b1111, 0b1111, 0b1001],
+    'F': [0b1111, 0b1000, 0b1110, 0b1000, 0b1000],
+    'K': [0b1001, 0b1010, 0b1100, 0b1010, 0b1001],
+    'X': [0b1001, 0b0110, 0b0110, 0b0110, 0b1001],
+    'Z': [0b1111, 0b0001, 0b0110, 0b1000, 0b1111],
+    '!': [0b0100, 0b0100, 0b0100, 0b0000, 0b0100],
+    '?': [0b0110, 0b1001, 0b0010, 0b0000, 0b0100],
+    ' ': [0b0000, 0b0000, 0b0000, 0b0000, 0b0000],
+    ':': [0b0000, 0b0100, 0b0000, 0b0100, 0b0000],
+    '0': [0b0110, 0b1001, 0b1001, 0b1001, 0b0110],
+    '1': [0b0100, 0b1100, 0b0100, 0b0100, 0b1110],
+    '2': [0b0110, 0b1001, 0b0010, 0b0100, 0b1111],
+    '3': [0b1110, 0b0001, 0b0110, 0b0001, 0b1110],
+    '4': [0b1001, 0b1001, 0b1111, 0b0001, 0b0001],
+    '5': [0b1111, 0b1000, 0b1110, 0b0001, 0b1110],
+    '6': [0b0110, 0b1000, 0b1110, 0b1001, 0b0110],
+    '7': [0b1111, 0b0001, 0b0010, 0b0100, 0b1000],
+    '8': [0b0110, 0b1001, 0b0110, 0b1001, 0b0110],
+    '9': [0b0110, 0b1001, 0b0111, 0b0001, 0b0110],
 }
 
 # 5x7 pixel large font for start screen (width=5, height=7)
@@ -274,22 +276,22 @@ class Display:
                     self.set_pixel(x + col_idx, y + row_idx)
 
     def draw_char(self, x, y, char):
-        """Draw a single character using the 3x5 font."""
+        """Draw a single character using the 4x5 font."""
         data = FONT.get(char.upper(), FONT[' '])
         for row in range(5):
             bits = data[row]
-            for col in range(3):
-                if bits & (1 << (2 - col)):
+            for col in range(4):
+                if bits & (1 << (3 - col)):
                     self.set_pixel(x + col, y + row)
 
     def draw_text(self, x, y, text):
         """Draw text at position."""
         for i, char in enumerate(text):
-            self.draw_char(x + i * 4, y, char)
+            self.draw_char(x + i * 5, y, char)
 
     def draw_centered_text(self, y, text):
         """Draw text centered horizontally."""
-        total_width = len(text) * 4 - 1
+        total_width = len(text) * 5 - 1
         start_x = (WIDTH - total_width) // 2
         self.draw_text(start_x, y, text)
 
@@ -535,7 +537,7 @@ class Obstacle:
     def get_sprite(self):
         """Get current sprite (for animation)."""
         if 'bird' in self.name:
-            return BIRD_1 if (self.frame // 3) % 2 == 0 else BIRD_2
+            return BIRD_1 if (self.frame // 6) % 2 == 0 else BIRD_2
         return self.sprite
 
     def get_hitbox(self):
@@ -609,7 +611,7 @@ class Dinosaur:
             return DINO_SPRITE_JUMP
         if self.ducking:
             return DINO_SPRITE_DUCK
-        return DINO_SPRITE_1 if (self.frame // 3) % 2 == 0 else DINO_SPRITE_2
+        return DINO_SPRITE_1 if (self.frame // 6) % 2 == 0 else DINO_SPRITE_2
 
     def get_hitbox(self):
         """Get collision hitbox."""
@@ -619,8 +621,8 @@ class Dinosaur:
 class Game:
     """Main game controller."""
 
-    INITIAL_SPEED = 1.5
-    MAX_SPEED = 6
+    INITIAL_SPEED = 0.6  # Tuned for 60fps
+    MAX_SPEED = 2.4  # Tuned for 60fps
 
     def __init__(self, display, input_handler, duck_enabled=True):
         self.display = display
@@ -635,6 +637,10 @@ class Game:
         self.next_obstacle_time = 0
         self.animation_frame = 0
         self.ground_offset = 0.0
+        # Randomized scene order for start screen animations
+        self.scene_order = list(range(16))
+        random.shuffle(self.scene_order)
+        self.current_scene_idx = 0
 
     def reset(self):
         """Reset game state for a new game."""
@@ -708,7 +714,7 @@ class Game:
                 self.ground_offset -= 8
 
             # Increase difficulty gradually
-            self.speed = self.INITIAL_SPEED + self.score // 100 * 0.3
+            self.speed = self.INITIAL_SPEED + self.score // 100 * 0.12  # Tuned for 60fps
             if self.speed > self.MAX_SPEED:
                 self.speed = self.MAX_SPEED
 
@@ -717,10 +723,13 @@ class Game:
             if jump:
                 self.state = 'playing'
                 self.reset()
-            # Return to start screen after 5 seconds (~150 frames at 30fps)
-            elif self.animation_frame >= 150:
+            # Return to start screen after 5 seconds (~300 frames at 60fps)
+            elif self.animation_frame >= 300:
                 self.state = 'start'
                 self.animation_frame = 0
+                # Reshuffle scenes for fresh start screen
+                random.shuffle(self.scene_order)
+                self.current_scene_idx = 0
 
         return True
 
@@ -739,9 +748,18 @@ class Game:
 
     def _render_start_screen(self):
         """Render animated start screen with anime-style face and varied animations."""
-        # Different animation scenes - smooth but not too fast
-        big_cycle = (self.animation_frame // 120) % 8
+        # Different animation scenes - 120 frames per scene at 60fps = 2 seconds each
         cycle = self.animation_frame % 120
+
+        # Check if we need to advance to next scene
+        new_scene_idx = (self.animation_frame // 120) % 16
+        if new_scene_idx != self.current_scene_idx:
+            self.current_scene_idx = new_scene_idx
+            # Reshuffle when we complete all scenes
+            if new_scene_idx == 0:
+                random.shuffle(self.scene_order)
+
+        big_cycle = self.scene_order[self.current_scene_idx]
 
         eye_left_x = 32
         eye_right_x = 88
@@ -805,82 +823,130 @@ class Game:
         msg = ""
 
         if big_cycle == 0:
-            # Normal looking around
+            # Normal looking around - with very smooth transitions
             c = cycle
             if c in range(18, 26):
                 left_state = 'closed'
                 right_state = 'closed'
-            elif c in range(50, 62):
+            elif c in range(50, 60):
                 left_state = 'closed'
-            elif c in range(90, 102):
+            elif c in range(90, 100):
                 right_state = 'closed'
 
-            if c < 18: pupil_dx, pupil_dy = 0, 0
-            elif c < 50: pupil_dx, pupil_dy = 2, 0
-            elif c < 70: pupil_dx, pupil_dy = 0, -2
-            elif c < 90: pupil_dx, pupil_dy = -2, 0
-            else: pupil_dx, pupil_dy = 0, 1
+            # Very smooth pupil movement with many intermediate positions
+            if c < 5: pupil_dx, pupil_dy = 0, 0
+            elif c < 8: pupil_dx, pupil_dy = 1, 0
+            elif c < 18: pupil_dx, pupil_dy = 2, 0  # Right
+            elif c < 35: pupil_dx, pupil_dy = 2, 0  # Stay right
+            elif c < 38: pupil_dx, pupil_dy = 1, 0
+            elif c < 41: pupil_dx, pupil_dy = 0, 0
+            elif c < 44: pupil_dx, pupil_dy = 0, -1
+            elif c < 50: pupil_dx, pupil_dy = 0, -2  # Up
+            elif c < 65: pupil_dx, pupil_dy = 0, -2  # Stay up
+            elif c < 68: pupil_dx, pupil_dy = -1, -1
+            elif c < 71: pupil_dx, pupil_dy = -2, -1
+            elif c < 83: pupil_dx, pupil_dy = -2, 0  # Left
+            elif c < 86: pupil_dx, pupil_dy = -1, 0
+            elif c < 89: pupil_dx, pupil_dy = 0, 0
+            elif c < 100: pupil_dx, pupil_dy = 0, 0  # Center
+            elif c < 103: pupil_dx, pupil_dy = 0, 1
+            elif c < 110: pupil_dx, pupil_dy = 0, 2  # Down
+            elif c < 113: pupil_dx, pupil_dy = 0, 1
+            else: pupil_dx, pupil_dy = 0, 0
 
             msg = "PRESS TO PLAY!"
 
         elif big_cycle == 1:
             # Sleepy then wake up
             c = cycle
-            if c < 40:
+            if c < 38:
                 left_state = 'half'
                 right_state = 'half'
             elif c < 75:
                 left_state = 'closed'
                 right_state = 'closed'
-            elif c < 95:
+            elif c < 98:
                 left_state = 'half'
                 right_state = 'half'
             else:
                 left_state = 'wide'
                 right_state = 'wide'
-            pupil_dx, pupil_dy = 0, 1
+
+            # Smooth down position with transitions
+            if c < 15: pupil_dx, pupil_dy = 0, 0
+            elif c < 20: pupil_dx, pupil_dy = 0, 1
+            elif c < 38: pupil_dx, pupil_dy = 0, 2
+            elif c < 98: pupil_dx, pupil_dy = 0, 1
+            elif c < 102: pupil_dx, pupil_dy = 0, 0  # Alert!
+            else: pupil_dx, pupil_dy = 0, -1  # Surprised look up
 
             msg = "WAKE ME UP!"
 
         elif big_cycle == 2:
-            # Full eye roll circle
+            # Full eye roll circle - very smooth
             c = cycle
-            if c in range(55, 63):
+            if c in range(54, 64):
                 left_state = 'closed'
                 right_state = 'closed'
 
-            # Rolling in a circle
-            if c < 15: pupil_dx, pupil_dy = 0, -2  # Up
-            elif c < 30: pupil_dx, pupil_dy = 2, -1  # Up-right
-            elif c < 45: pupil_dx, pupil_dy = 2, 1  # Down-right
-            elif c < 55: pupil_dx, pupil_dy = 0, 2  # Down
-            elif c < 70: pupil_dx, pupil_dy = 0, 0  # Center (blink)
-            elif c < 85: pupil_dx, pupil_dy = -2, 1  # Down-left
-            elif c < 100: pupil_dx, pupil_dy = -2, -1  # Up-left
-            else: pupil_dx, pupil_dy = 0, -2  # Up
+            # Rolling in a circle with many intermediate frames
+            if c < 5: pupil_dx, pupil_dy = 0, -2  # Up
+            elif c < 8: pupil_dx, pupil_dy = 1, -2  # Up to up-right
+            elif c < 12: pupil_dx, pupil_dy = 2, -2  # Up-right
+            elif c < 15: pupil_dx, pupil_dy = 2, -1
+            elif c < 20: pupil_dx, pupil_dy = 2, 0  # Right
+            elif c < 23: pupil_dx, pupil_dy = 2, 1
+            elif c < 28: pupil_dx, pupil_dy = 2, 2  # Down-right
+            elif c < 31: pupil_dx, pupil_dy = 1, 2
+            elif c < 36: pupil_dx, pupil_dy = 0, 2  # Down
+            elif c < 39: pupil_dx, pupil_dy = -1, 2
+            elif c < 44: pupil_dx, pupil_dy = -2, 2  # Down-left
+            elif c < 47: pupil_dx, pupil_dy = -2, 1
+            elif c < 54: pupil_dx, pupil_dy = -2, 0  # Left (then blink)
+            elif c < 69: pupil_dx, pupil_dy = 0, 0  # Center (blink)
+            elif c < 72: pupil_dx, pupil_dy = -1, 0
+            elif c < 77: pupil_dx, pupil_dy = -2, 0  # Left
+            elif c < 80: pupil_dx, pupil_dy = -2, -1
+            elif c < 85: pupil_dx, pupil_dy = -2, -2  # Up-left
+            elif c < 88: pupil_dx, pupil_dy = -1, -2
+            elif c < 93: pupil_dx, pupil_dy = 0, -2  # Up
+            elif c < 96: pupil_dx, pupil_dy = 1, -2
+            elif c < 101: pupil_dx, pupil_dy = 2, -2  # Up-right
+            elif c < 104: pupil_dx, pupil_dy = 2, -1
+            elif c < 109: pupil_dx, pupil_dy = 2, 0  # Right
+            elif c < 112: pupil_dx, pupil_dy = 1, 0
+            else: pupil_dx, pupil_dy = 0, 0  # Center
 
             msg = "PLAY WITH ME!"
 
         elif big_cycle == 3:
             # Hide and seek
             c = cycle
-            if c < 25:
+            if c < 24:
                 pass
-            elif c < 40:
+            elif c < 39:
                 left_state = 'closed'
                 right_state = 'closed'
+            elif c < 50:
+                left_state = 'hidden'
+                right_state = 'hidden'
             elif c < 60:
                 left_state = 'hidden'
-                right_state = 'hidden'
-            elif c < 78:
+                pupil_dx, pupil_dy = -1, 0
+            elif c < 75:
                 left_state = 'hidden'
                 pupil_dx, pupil_dy = -2, 0
-            elif c < 90:
+            elif c < 87:
                 left_state = 'hidden'
                 right_state = 'hidden'
-            elif c < 108:
+            elif c < 97:
+                right_state = 'hidden'
+                pupil_dx, pupil_dy = 1, 0
+            elif c < 105:
                 right_state = 'hidden'
                 pupil_dx, pupil_dy = 2, 0
+            elif c < 112:
+                pupil_dx, pupil_dy = 1, 0
             else:
                 pupil_dx, pupil_dy = 0, 0
 
@@ -889,50 +955,69 @@ class Game:
         elif big_cycle == 4:
             # Dizzy
             c = cycle
-            if c < 95:
+            if c < 98:
                 left_state = 'dizzy'
                 right_state = 'dizzy'
+            elif c < 105:
+                left_state = 'half'
+                right_state = 'half'
+                pupil_dx, pupil_dy = 1, 1
+            elif c < 112:
+                pupil_dx, pupil_dy = -1, 0
             else:
                 pupil_dx, pupil_dy = 0, 0
 
             msg = "PRESS TO PLAY!"
 
         elif big_cycle == 5:
-            # Cross-eyed then opposite
+            # Cross-eyed then opposite - with smooth transitions
             c = cycle
-            if c in range(35, 43):
+            if c in range(35, 45):
                 left_state = 'closed'
                 right_state = 'closed'
-            elif c in range(80, 88):
+            elif c in range(83, 93):
                 left_state = 'closed'
                 right_state = 'closed'
 
-            # Eyes look at each other then away
-            if c < 35:
-                pupil_dx, pupil_dy = 2, 0  # Both look right (cross-eyed effect)
-            elif c < 55:
-                pupil_dx, pupil_dy = 0, 0  # Center
-            elif c < 80:
-                pupil_dx, pupil_dy = -2, 0  # Both look left
-            elif c < 100:
-                pupil_dx, pupil_dy = 0, -2  # Both look up
-            else:
-                pupil_dx, pupil_dy = 0, 0
+            # Very smooth eye movement
+            if c < 5: pupil_dx, pupil_dy = 0, 0
+            elif c < 10: pupil_dx, pupil_dy = 1, 0
+            elif c < 35: pupil_dx, pupil_dy = 2, 0  # Right
+            elif c < 50: pupil_dx, pupil_dy = 1, 0
+            elif c < 55: pupil_dx, pupil_dy = 0, 0  # Center
+            elif c < 60: pupil_dx, pupil_dy = -1, 0
+            elif c < 83: pupil_dx, pupil_dy = -2, 0  # Left
+            elif c < 97: pupil_dx, pupil_dy = -1, -1
+            elif c < 105: pupil_dx, pupil_dy = 0, -2  # Up
+            elif c < 112: pupil_dx, pupil_dy = 0, -1
+            else: pupil_dx, pupil_dy = 0, 0
 
             msg = "AWESOME!"
 
         elif big_cycle == 6:
-            # Suspicious
+            # Suspicious - with very smooth transitions
             c = cycle
-            if c < 35:
-                pupil_dx, pupil_dy = -2, 0
+            # Smooth left to right
+            if c < 5: pupil_dx, pupil_dy = 0, 0
+            elif c < 10: pupil_dx, pupil_dy = -1, 0
+            elif c < 25: pupil_dx, pupil_dy = -2, 0
+            elif c < 30: pupil_dx, pupil_dy = -1, 0
+            elif c < 35: pupil_dx, pupil_dy = 0, 0
+            elif c < 40: pupil_dx, pupil_dy = 1, 0
+            elif c < 55: pupil_dx, pupil_dy = 2, 0
             elif c < 70:
-                pupil_dx, pupil_dy = 2, 0
-            elif c < 85:
                 left_state = 'half'
                 right_state = 'half'
-            elif c < 105:
-                pupil_dx, pupil_dy = 2, 1
+                pupil_dx, pupil_dy = 2, 0
+            elif c < 86:
+                left_state = 'half'
+                right_state = 'half'
+                pupil_dx, pupil_dy = 1, 0
+            elif c < 97: pupil_dx, pupil_dy = 2, 1
+            elif c < 107: pupil_dx, pupil_dy = 1, 1
+            elif c < 115:
+                left_state = 'closed'
+                pupil_dx, pupil_dy = -1, 0
             else:
                 left_state = 'closed'
                 pupil_dx, pupil_dy = -2, 0
@@ -940,14 +1025,194 @@ class Game:
             msg = "I SEE YOU!"
 
         elif big_cycle == 7:
-            # Crazy rapid
-            c = cycle % 60
-            if c % 8 < 3:
+            # Crazy rapid - very smooth with many positions
+            c = cycle
+            if c % 12 < 5:
                 left_state = 'closed'
-            if (c + 4) % 8 < 3:
+            if (c + 6) % 12 < 5:
                 right_state = 'closed'
-            positions = [(0, 0), (2, -1), (-2, 1), (1, 2), (-1, -2), (2, 2)]
-            pupil_dx, pupil_dy = positions[(c // 6) % len(positions)]
+            # Many positions for very smooth crazy movement
+            positions = [
+                (0, 0), (0, -1), (1, -1), (1, -2), (2, -1), (2, 0), (1, 0),
+                (1, 1), (0, 1), (-1, 1), (-1, 2), (-2, 1), (-2, 0), (-1, 0),
+                (-1, -1), (0, -1), (0, -2), (1, -2), (2, -2), (2, -1),
+                (1, 0), (0, 0), (0, 1), (0, 2), (-1, 2), (-2, 2), (-2, 1),
+                (-2, 0), (-1, -1), (0, -1)
+            ]
+            pupil_dx, pupil_dy = positions[(c // 4) % len(positions)]
+
+            msg = "PRESS TO PLAY!"
+
+        elif big_cycle == 8:
+            # Hypnotic - eyes move in opposite directions
+            c = cycle
+            # Smooth circular motion, eyes go opposite ways
+            angle_steps = [
+                (0, -2), (1, -2), (2, -1), (2, 0), (2, 1), (1, 2), (0, 2),
+                (-1, 2), (-2, 1), (-2, 0), (-2, -1), (-1, -2)
+            ]
+            idx = (c // 5) % len(angle_steps)
+            pupil_dx, pupil_dy = angle_steps[idx]
+            # Draw eyes with opposite pupil directions
+            draw_anime_eye(eye_left_x, eye_y, left_state, pupil_dx, pupil_dy)
+            draw_anime_eye(eye_right_x, eye_y, right_state, -pupil_dx, -pupil_dy)
+            self.display.draw_centered_text(13, "HYPNOTIZING!")
+            return
+
+        elif big_cycle == 9:
+            # Bouncy - eyes look up and down like following a ball
+            c = cycle
+            if c in range(25, 35):
+                left_state = 'wide'
+                right_state = 'wide'
+            elif c in range(75, 85):
+                left_state = 'wide'
+                right_state = 'wide'
+
+            # Bouncy movement with smooth transitions
+            bounce = [
+                (0, -2), (0, -2), (0, -1), (0, 0), (0, 1), (0, 2), (0, 2),
+                (0, 2), (0, 1), (0, 0), (0, -1), (0, -2)
+            ]
+            idx = (c // 5) % len(bounce)
+            pupil_dx, pupil_dy = bounce[idx]
+
+            # Add horizontal drift
+            if c < 40:
+                pupil_dx = -1
+            elif c < 80:
+                pupil_dx = 1
+            else:
+                pupil_dx = 0
+
+            msg = "BOING BOING!"
+
+        elif big_cycle == 10:
+            # Reading - eyes scan left to right like reading text
+            c = cycle
+            if c in range(55, 65):
+                left_state = 'closed'
+                right_state = 'closed'
+
+            # Reading motion - left to right, then jump back
+            read_positions = [
+                (-2, 1), (-1, 1), (0, 1), (1, 1), (2, 1),  # Read line
+                (2, 1), (1, 1), (0, 1),  # Slight back
+                (-2, 2), (-1, 2), (0, 2), (1, 2), (2, 2),  # Next line
+            ]
+            idx = (c // 6) % len(read_positions)
+            if c < 55 or c >= 65:
+                pupil_dx, pupil_dy = read_positions[idx]
+            else:
+                pupil_dx, pupil_dy = 0, 0
+
+            msg = "INTERESTING!"
+
+        elif big_cycle == 11:
+            # Alternating winks with smooth pupil
+            c = cycle
+            # Wink pattern
+            if c < 20:
+                pass  # Both open
+            elif c < 35:
+                left_state = 'closed'
+                pupil_dx, pupil_dy = 2, 0
+            elif c < 50:
+                pupil_dx, pupil_dy = 1, 0
+            elif c < 60:
+                pupil_dx, pupil_dy = 0, 0
+            elif c < 75:
+                right_state = 'closed'
+                pupil_dx, pupil_dy = -2, 0
+            elif c < 90:
+                pupil_dx, pupil_dy = -1, 0
+            elif c < 100:
+                pupil_dx, pupil_dy = 0, 1
+            elif c < 110:
+                left_state = 'half'
+                right_state = 'half'
+                pupil_dx, pupil_dy = 0, 0
+            else:
+                pupil_dx, pupil_dy = 0, -1
+
+            msg = "COME PLAY!"
+
+        elif big_cycle == 12:
+            #震える (Shaking/Trembling) - nervous shaking eyes
+            c = cycle
+            if c in range(60, 75):
+                left_state = 'wide'
+                right_state = 'wide'
+
+            # Shaky nervous movement
+            shake = [(0, 0), (1, 0), (0, 0), (-1, 0), (0, 1), (0, 0), (0, -1)]
+            idx = (c // 2) % len(shake)
+            pupil_dx, pupil_dy = shake[idx]
+
+            msg = "SO NERVOUS!"
+
+        elif big_cycle == 13:
+            # Searching - looking around frantically
+            c = cycle
+            if c in range(30, 40) or c in range(80, 90):
+                left_state = 'wide'
+                right_state = 'wide'
+
+            # Frantic searching pattern
+            search = [
+                (-2, -2), (-1, -1), (0, -2), (1, -1), (2, -2),
+                (2, 0), (2, 2), (1, 1), (0, 2), (-1, 1), (-2, 2),
+                (-2, 0), (-1, -1), (0, 0), (1, -1), (2, 0)
+            ]
+            idx = (c // 4) % len(search)
+            pupil_dx, pupil_dy = search[idx]
+
+            msg = "WHERE IS IT?"
+
+        elif big_cycle == 14:
+            # Flirty - batting eyelashes with playful look
+            c = cycle
+            # Quick blinks
+            if c in range(15, 20) or c in range(35, 40) or c in range(55, 60):
+                left_state = 'closed'
+                right_state = 'closed'
+            elif c in range(75, 95):
+                left_state = 'half'
+                right_state = 'half'
+
+            # Playful side glances
+            if c < 25:
+                pupil_dx, pupil_dy = 2, 1
+            elif c < 45:
+                pupil_dx, pupil_dy = -2, 1
+            elif c < 65:
+                pupil_dx, pupil_dy = 0, -1
+            elif c < 85:
+                pupil_dx, pupil_dy = 1, 0
+            else:
+                pupil_dx, pupil_dy = -1, 1
+
+            msg = "HEY THERE!"
+
+        elif big_cycle == 15:
+            # Figure 8 - smooth figure 8 pattern
+            c = cycle
+            if c in range(58, 68):
+                left_state = 'closed'
+                right_state = 'closed'
+
+            # Figure 8 with many intermediate positions
+            fig8 = [
+                (0, -2), (1, -2), (2, -1), (2, 0), (2, 1), (1, 2), (0, 2),
+                (-1, 1), (-2, 0), (-2, -1), (-1, -2), (0, -2),
+                (-1, -2), (-2, -1), (-2, 0), (-2, 1), (-1, 2), (0, 2),
+                (1, 1), (2, 0), (2, -1), (1, -2), (0, -2)
+            ]
+            idx = (c // 3) % len(fig8)
+            if c < 58 or c >= 68:
+                pupil_dx, pupil_dy = fig8[idx]
+            else:
+                pupil_dx, pupil_dy = 0, 0
 
             msg = "PRESS TO PLAY!"
 
