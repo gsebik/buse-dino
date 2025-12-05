@@ -406,8 +406,8 @@ BUFFER_SIZE = BYTES_PER_ROW * HEIGHT
 
 # Game physics (tuned for 60fps)
 # Lower gravity = longer air time, higher jump velocity = higher jump
-GRAVITY = 0.12
-JUMP_VELOCITY = -1.6
+GRAVITY = 0.10
+JUMP_VELOCITY = -1.7
 GROUND_Y = HEIGHT - 1
 
 # Timing
@@ -742,7 +742,7 @@ class InputHandler:
 
     def __init__(self, use_terminal_input=False):
         self.use_terminal_input = use_terminal_input
-        self.keyboard = None
+        self.keyboards = []  # Support multiple keyboards
         self.jump_pressed = False
         self.duck_pressed = False
         self.quit_requested = False
@@ -753,34 +753,44 @@ class InputHandler:
         elif HAS_EVDEV:
             self._init_evdev()
         else:
+            print("evdev not available, trying terminal input")
             self._init_terminal()
 
     def _init_evdev(self):
         """Initialize evdev keyboard input."""
-        # Try to find a suitable keyboard device
-        for path in list_devices():
+        devices = list_devices()
+        print(f"Found {len(devices)} input devices")
+
+        # Try to find all suitable keyboard devices
+        for path in devices:
             try:
                 dev = InputDevice(path)
                 caps = dev.capabilities()
                 if ecodes.EV_KEY in caps:
                     keys = caps[ecodes.EV_KEY]
-                    # Look for device with Enter or PageUp key
-                    if ecodes.KEY_ENTER in keys or ecodes.KEY_PAGEUP in keys:
-                        self.keyboard = dev
+                    # Look for device with common keys (Enter, PageUp, Space, or arrow keys)
+                    has_keys = any(k in keys for k in [
+                        ecodes.KEY_ENTER, ecodes.KEY_PAGEUP, ecodes.KEY_SPACE,
+                        ecodes.KEY_UP, ecodes.KEY_DOWN, ecodes.KEY_A, ecodes.KEY_1
+                    ])
+                    if has_keys:
+                        print(f"Using input device: {dev.name} ({path})")
                         try:
-                            self.keyboard.grab()
-                        except IOError:
-                            pass  # May fail if not root
-                        return
-            except Exception:
+                            dev.grab()
+                        except IOError as e:
+                            print(f"  Could not grab device: {e}")
+                        self.keyboards.append(dev)
+            except Exception as e:
+                print(f"Error checking device {path}: {e}")
                 continue
 
-        # No keyboard found, try terminal if available
-        if sys.stdin.isatty():
-            print("No keyboard found via evdev, falling back to terminal input")
-            self._init_terminal()
-        else:
-            print("Warning: No input device available")
+        if not self.keyboards:
+            # No keyboard found, try terminal if available
+            if sys.stdin.isatty():
+                print("No keyboard found via evdev, falling back to terminal input")
+                self._init_terminal()
+            else:
+                print("Warning: No input device available")
 
     def _init_terminal(self):
         """Initialize terminal-based input."""
@@ -820,35 +830,38 @@ class InputHandler:
                             break
                     # PageUp or any escape sequence = jump
                     jump_triggered = True
-        elif self.keyboard:
-            # Check evdev keyboard
-            r, _, _ = select([self.keyboard], [], [], 0)
-            if r:
-                for event in self.keyboard.read():
-                    if event.type == ecodes.EV_KEY:
-                        key_event = categorize(event)
-                        # Jump keys: Enter, PageUp, Up arrow
-                        if key_event.scancode in (ecodes.KEY_ENTER, ecodes.KEY_PAGEUP, ecodes.KEY_UP):
-                            if key_event.keystate == key_event.key_down:
-                                jump_triggered = True
-                        # Duck keys: Space, PageDown, Down arrow
-                        elif key_event.scancode in (ecodes.KEY_SPACE, ecodes.KEY_PAGEDOWN, ecodes.KEY_DOWN):
-                            if key_event.keystate == key_event.key_down:
-                                self.duck_pressed = True
-                            elif key_event.keystate == key_event.key_up:
-                                self.duck_pressed = False
-                        elif key_event.scancode == ecodes.KEY_ESC:
-                            if key_event.keystate == key_event.key_down:
-                                self.quit_requested = True
+        elif self.keyboards:
+            # Check all evdev keyboards
+            r, _, _ = select(self.keyboards, [], [], 0)
+            for kb in r:
+                try:
+                    for event in kb.read():
+                        if event.type == ecodes.EV_KEY:
+                            key_event = categorize(event)
+                            # Jump keys: Enter, PageUp, Up arrow
+                            if key_event.scancode in (ecodes.KEY_ENTER, ecodes.KEY_PAGEUP, ecodes.KEY_UP):
+                                if key_event.keystate == key_event.key_down:
+                                    jump_triggered = True
+                            # Duck keys: Space, PageDown, Down arrow
+                            elif key_event.scancode in (ecodes.KEY_SPACE, ecodes.KEY_PAGEDOWN, ecodes.KEY_DOWN):
+                                if key_event.keystate == key_event.key_down:
+                                    self.duck_pressed = True
+                                elif key_event.keystate == key_event.key_up:
+                                    self.duck_pressed = False
+                            elif key_event.scancode == ecodes.KEY_ESC:
+                                if key_event.keystate == key_event.key_down:
+                                    self.quit_requested = True
+                except Exception:
+                    pass  # Device may have been disconnected
             duck_held = self.duck_pressed
 
         return jump_triggered, duck_held, self.quit_requested
 
     def cleanup(self):
         """Clean up input resources."""
-        if self.keyboard:
+        for kb in self.keyboards:
             try:
-                self.keyboard.ungrab()
+                kb.ungrab()
             except Exception:
                 pass
         if self.old_settings and sys.stdin.isatty():
@@ -990,6 +1003,7 @@ class Game:
 
     INITIAL_SPEED = 0.6  # Tuned for 60fps
     MAX_SPEED = 2.4  # Tuned for 60fps
+    HIGH_SCORE_FILE = "/var/lib/dino_highscore"
 
     def __init__(self, display, input_handler, duck_enabled=True, sound_enabled=True):
         self.display = display
@@ -998,7 +1012,7 @@ class Game:
         self.sound = Sound(enabled=sound_enabled)
         self.state = 'start'  # start, playing, gameover
         self.score = 0
-        self.high_score = 0
+        self.high_score = self._load_high_score()
         self.speed = self.INITIAL_SPEED
         self.dino = None
         self.obstacles = []
@@ -1010,6 +1024,22 @@ class Game:
         random.shuffle(self.scene_order)
         self.current_scene_idx = -1  # Start at -1 so first scene triggers speech
         self.last_sound_frame = -1  # Track last sound to avoid repeats
+
+    def _load_high_score(self):
+        """Load high score from file."""
+        try:
+            with open(self.HIGH_SCORE_FILE, 'r') as f:
+                return int(f.read().strip())
+        except Exception:
+            return 0
+
+    def _save_high_score(self):
+        """Save high score to file."""
+        try:
+            with open(self.HIGH_SCORE_FILE, 'w') as f:
+                f.write(str(self.high_score))
+        except Exception:
+            pass  # Ignore errors (e.g., permission issues)
 
     def reset(self):
         """Reset game state for a new game."""
@@ -1051,12 +1081,14 @@ class Game:
             self.dino.duck(duck)
             self.dino.update()
 
-            # Spawn obstacles
+            # Spawn obstacles - spawn faster as score increases
             if time.time() >= self.next_obstacle_time:
                 self.obstacles.append(Obstacle(WIDTH, include_birds=True, duck_enabled=self.duck_enabled))
-                self.next_obstacle_time = time.time() + random.uniform(
-                    OBSTACLE_SPAWN_MIN, OBSTACLE_SPAWN_MAX
-                )
+                # Reduce spawn time as score increases (min 0.8s, max based on score)
+                difficulty = min(self.score / 500, 1.0)  # 0 to 1 over 500 points
+                spawn_min = OBSTACLE_SPAWN_MIN - difficulty * 0.7  # 1.5 -> 0.8
+                spawn_max = OBSTACLE_SPAWN_MAX - difficulty * 1.5  # 3.0 -> 1.5
+                self.next_obstacle_time = time.time() + random.uniform(spawn_min, spawn_max)
 
             # Update obstacles
             for obs in self.obstacles:
@@ -1087,6 +1119,7 @@ class Game:
                     self.sound.play("gameover")
                     if self.score > self.high_score:
                         self.high_score = self.score
+                        self._save_high_score()
                         self.sound.speak(f"Game over! New high score {self.score}!", speed=130, pitch=40)
                     else:
                         self.sound.speak(f"Game over! Score {self.score}", speed=130, pitch=40)
