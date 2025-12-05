@@ -38,7 +38,7 @@ BYTES_PER_ROW = WIDTH // 8
 BUFFER_SIZE = BYTES_PER_ROW * HEIGHT
 
 # Game physics
-GRAVITY = 0.6
+GRAVITY = 0.5
 JUMP_VELOCITY = -3.5
 GROUND_Y = HEIGHT - 1
 
@@ -95,32 +95,32 @@ DINO_SPRITE_DUCK = [
     "       ",
 ]
 
-# Cactus sprites (various sizes)
+# Cactus sprites (various sizes) with L-shape arms
 CACTUS_SMALL = [
     " X ",
-    "XXX",
     " X ",
-    " X ",
+    "XX ",
+    " XX",
     " X ",
 ]
 
 CACTUS_MEDIUM = [
-    " X  ",
-    "XX X",
-    " XXX",
-    " X  ",
-    " X  ",
-    " X  ",
+    "  X  ",
+    "  X  ",
+    "X X  ",
+    "XXX X",
+    "  XXX",
+    "  X  ",
 ]
 
 CACTUS_TALL = [
-    " X   ",
-    "XX X ",
-    " XXXX",
-    " X X ",
-    " X   ",
-    " X   ",
-    " X   ",
+    "  X  ",
+    "X X  ",
+    "X X  ",
+    "XXX X",
+    "  XXX",
+    "  X  ",
+    "  X  ",
 ]
 
 # Bird/bat sprite (flying obstacle)
@@ -150,6 +150,17 @@ FONT = {
     'D': [0b110, 0b101, 0b101, 0b101, 0b110],
     'I': [0b111, 0b010, 0b010, 0b010, 0b111],
     'H': [0b101, 0b101, 0b111, 0b101, 0b101],
+    'C': [0b011, 0b100, 0b100, 0b100, 0b011],
+    'L': [0b100, 0b100, 0b100, 0b100, 0b111],
+    'Y': [0b101, 0b101, 0b010, 0b010, 0b010],
+    'B': [0b110, 0b101, 0b110, 0b101, 0b110],
+    'U': [0b101, 0b101, 0b101, 0b101, 0b111],
+    'W': [0b101, 0b101, 0b111, 0b111, 0b101],
+    'F': [0b111, 0b100, 0b110, 0b100, 0b100],
+    'K': [0b101, 0b101, 0b110, 0b101, 0b101],
+    'X': [0b101, 0b101, 0b010, 0b101, 0b101],
+    '!': [0b010, 0b010, 0b010, 0b000, 0b010],
+    '?': [0b110, 0b001, 0b010, 0b000, 0b010],
     ' ': [0b000, 0b000, 0b000, 0b000, 0b000],
     ':': [0b000, 0b010, 0b000, 0b010, 0b000],
     '0': [0b111, 0b101, 0b101, 0b101, 0b111],
@@ -162,6 +173,64 @@ FONT = {
     '7': [0b111, 0b001, 0b001, 0b001, 0b001],
     '8': [0b111, 0b101, 0b111, 0b101, 0b111],
     '9': [0b111, 0b101, 0b111, 0b001, 0b111],
+}
+
+# 5x7 pixel large font for start screen (width=5, height=7)
+FONT_LARGE = {
+    'P': [
+        "XXXX ",
+        "X   X",
+        "X   X",
+        "XXXX ",
+        "X    ",
+        "X    ",
+        "X    ",
+    ],
+    'L': [
+        "X    ",
+        "X    ",
+        "X    ",
+        "X    ",
+        "X    ",
+        "X    ",
+        "XXXXX",
+    ],
+    'A': [
+        " XXX ",
+        "X   X",
+        "X   X",
+        "XXXXX",
+        "X   X",
+        "X   X",
+        "X   X",
+    ],
+    'Y': [
+        "X   X",
+        "X   X",
+        " X X ",
+        "  X  ",
+        "  X  ",
+        "  X  ",
+        "  X  ",
+    ],
+    '!': [
+        "  X  ",
+        "  X  ",
+        "  X  ",
+        "  X  ",
+        "  X  ",
+        "     ",
+        "  X  ",
+    ],
+    ' ': [
+        "     ",
+        "     ",
+        "     ",
+        "     ",
+        "     ",
+        "     ",
+        "     ",
+    ],
 }
 
 
@@ -223,6 +292,26 @@ class Display:
         total_width = len(text) * 4 - 1
         start_x = (WIDTH - total_width) // 2
         self.draw_text(start_x, y, text)
+
+    def draw_large_char(self, x, y, char):
+        """Draw a single character using the 5x7 large font."""
+        data = FONT_LARGE.get(char.upper(), FONT_LARGE.get(' '))
+        if data:
+            for row_idx, row in enumerate(data):
+                for col_idx, c in enumerate(row):
+                    if c == 'X':
+                        self.set_pixel(x + col_idx, y + row_idx)
+
+    def draw_large_text(self, x, y, text):
+        """Draw text using large font at position."""
+        for i, char in enumerate(text):
+            self.draw_large_char(x + i * 6, y, char)
+
+    def draw_centered_large_text(self, y, text):
+        """Draw large text centered horizontally."""
+        total_width = len(text) * 6 - 1
+        start_x = (WIDTH - total_width) // 2
+        self.draw_large_text(start_x, y, text)
 
     def draw_line(self, x1, y1, x2, y2):
         """Draw a horizontal or vertical line."""
@@ -415,10 +504,19 @@ class Obstacle:
         ('bird_high', BIRD_1, GROUND_Y - 8),
     ]
 
-    def __init__(self, x, include_birds=True):
+    # Birds at jumpable height for no-duck mode
+    BIRD_JUMP_TYPES = [
+        ('bird_jump', BIRD_1, GROUND_Y - 4),
+    ]
+
+    def __init__(self, x, include_birds=True, duck_enabled=True):
         self.x = x
         if include_birds:
-            types = self.CACTUS_TYPES + self.BIRD_TYPES
+            if duck_enabled:
+                types = self.CACTUS_TYPES + self.BIRD_TYPES
+            else:
+                # No-duck mode: only low birds that can be jumped over
+                types = self.CACTUS_TYPES + self.BIRD_JUMP_TYPES
         else:
             types = self.CACTUS_TYPES
         obstacle_type = random.choice(types)
@@ -437,7 +535,7 @@ class Obstacle:
     def get_sprite(self):
         """Get current sprite (for animation)."""
         if 'bird' in self.name:
-            return BIRD_1 if (self.frame // 5) % 2 == 0 else BIRD_2
+            return BIRD_1 if (self.frame // 3) % 2 == 0 else BIRD_2
         return self.sprite
 
     def get_hitbox(self):
@@ -511,7 +609,7 @@ class Dinosaur:
             return DINO_SPRITE_JUMP
         if self.ducking:
             return DINO_SPRITE_DUCK
-        return DINO_SPRITE_1 if (self.frame // 5) % 2 == 0 else DINO_SPRITE_2
+        return DINO_SPRITE_1 if (self.frame // 3) % 2 == 0 else DINO_SPRITE_2
 
     def get_hitbox(self):
         """Get collision hitbox."""
@@ -576,7 +674,7 @@ class Game:
 
             # Spawn obstacles
             if time.time() >= self.next_obstacle_time:
-                self.obstacles.append(Obstacle(WIDTH, include_birds=self.duck_enabled))
+                self.obstacles.append(Obstacle(WIDTH, include_birds=True, duck_enabled=self.duck_enabled))
                 self.next_obstacle_time = time.time() + random.uniform(
                     OBSTACLE_SPAWN_MIN, OBSTACLE_SPAWN_MAX
                 )
@@ -619,8 +717,8 @@ class Game:
             if jump:
                 self.state = 'playing'
                 self.reset()
-            # Return to start screen after 10 seconds (~300 frames at 30fps)
-            elif self.animation_frame >= 300:
+            # Return to start screen after 5 seconds (~150 frames at 30fps)
+            elif self.animation_frame >= 150:
                 self.state = 'start'
                 self.animation_frame = 0
 
@@ -640,17 +738,223 @@ class Game:
         self.display.render()
 
     def _render_start_screen(self):
-        """Render animated start screen."""
-        # Draw a static dino
-        self.display.draw_sprite(DINO_SPRITE_1, 10, GROUND_Y - Dinosaur.STAND_HEIGHT)
+        """Render animated start screen with anime-style face and varied animations."""
+        # Different animation scenes - smooth but not too fast
+        big_cycle = (self.animation_frame // 120) % 8
+        cycle = self.animation_frame % 120
 
-        # Draw ground
-        self.display.draw_line(0, GROUND_Y, WIDTH - 1, GROUND_Y)
+        eye_left_x = 32
+        eye_right_x = 88
+        eye_y = 1
 
-        # Animated "PRESS ENTER" text (blinks)
-        if (self.animation_frame // 15) % 2 == 0:
-            self.display.draw_centered_text(2, "PRESS")
-            self.display.draw_centered_text(8, "ENTER")
+        def draw_anime_eye(cx, cy, state, pdx, pdy):
+            if state == 'closed':
+                for dx in range(-4, 5):
+                    self.display.set_pixel(cx + dx, cy + 4)
+                self.display.set_pixel(cx - 4, cy + 3)
+                self.display.set_pixel(cx + 4, cy + 3)
+            elif state == 'half':
+                for dx in range(-4, 5):
+                    self.display.set_pixel(cx + dx, cy + 2)
+                    self.display.set_pixel(cx + dx, cy + 6)
+                for dy in range(3, 6):
+                    self.display.set_pixel(cx - 4, cy + dy)
+                    self.display.set_pixel(cx + 4, cy + dy)
+            elif state == 'wide':
+                for dx in range(-4, 5):
+                    self.display.set_pixel(cx + dx, cy - 1)
+                    self.display.set_pixel(cx + dx, cy + 10)
+                self.display.set_pixel(cx - 5, cy)
+                self.display.set_pixel(cx + 5, cy)
+                self.display.set_pixel(cx - 5, cy + 9)
+                self.display.set_pixel(cx + 5, cy + 9)
+                for dy in range(1, 9):
+                    self.display.set_pixel(cx - 6, cy + dy)
+                    self.display.set_pixel(cx + 6, cy + dy)
+                for dx in range(2):
+                    for dy in range(2):
+                        self.display.set_pixel(cx + pdx + dx, cy + 4 + pdy + dy)
+            elif state == 'dizzy':
+                spiral = [" XXXXX ", "X     X", "X XXX X", "X X   X", "X XXXXX", "X      ", " XXXXXX"]
+                for row_idx, row in enumerate(spiral):
+                    for col_idx, char in enumerate(row):
+                        if char == 'X':
+                            self.display.set_pixel(cx - 3 + col_idx, cy + 1 + row_idx)
+            elif state == 'hidden':
+                pass
+            else:
+                for dx in range(-3, 4):
+                    self.display.set_pixel(cx + dx, cy)
+                self.display.set_pixel(cx - 4, cy + 1)
+                self.display.set_pixel(cx + 4, cy + 1)
+                for dx in range(-3, 4):
+                    self.display.set_pixel(cx + dx, cy + 9)
+                self.display.set_pixel(cx - 4, cy + 8)
+                self.display.set_pixel(cx + 4, cy + 8)
+                for dy in range(2, 8):
+                    self.display.set_pixel(cx - 5, cy + dy)
+                    self.display.set_pixel(cx + 5, cy + dy)
+                for dx in range(-1, 3):
+                    for dy in range(-1, 3):
+                        self.display.set_pixel(cx + pdx + dx, cy + 4 + pdy + dy)
+                self.display.set_pixel(cx + pdx - 1, cy + 3 + pdy, 0)
+
+        left_state = 'open'
+        right_state = 'open'
+        pupil_dx, pupil_dy = 0, 0
+        msg = ""
+
+        if big_cycle == 0:
+            # Normal looking around
+            c = cycle
+            if c in range(18, 26):
+                left_state = 'closed'
+                right_state = 'closed'
+            elif c in range(50, 62):
+                left_state = 'closed'
+            elif c in range(90, 102):
+                right_state = 'closed'
+
+            if c < 18: pupil_dx, pupil_dy = 0, 0
+            elif c < 50: pupil_dx, pupil_dy = 2, 0
+            elif c < 70: pupil_dx, pupil_dy = 0, -2
+            elif c < 90: pupil_dx, pupil_dy = -2, 0
+            else: pupil_dx, pupil_dy = 0, 1
+
+            msg = "PRESS TO PLAY!"
+
+        elif big_cycle == 1:
+            # Sleepy then wake up
+            c = cycle
+            if c < 40:
+                left_state = 'half'
+                right_state = 'half'
+            elif c < 75:
+                left_state = 'closed'
+                right_state = 'closed'
+            elif c < 95:
+                left_state = 'half'
+                right_state = 'half'
+            else:
+                left_state = 'wide'
+                right_state = 'wide'
+            pupil_dx, pupil_dy = 0, 1
+
+            msg = "WAKE ME UP!"
+
+        elif big_cycle == 2:
+            # Full eye roll circle
+            c = cycle
+            if c in range(55, 63):
+                left_state = 'closed'
+                right_state = 'closed'
+
+            # Rolling in a circle
+            if c < 15: pupil_dx, pupil_dy = 0, -2  # Up
+            elif c < 30: pupil_dx, pupil_dy = 2, -1  # Up-right
+            elif c < 45: pupil_dx, pupil_dy = 2, 1  # Down-right
+            elif c < 55: pupil_dx, pupil_dy = 0, 2  # Down
+            elif c < 70: pupil_dx, pupil_dy = 0, 0  # Center (blink)
+            elif c < 85: pupil_dx, pupil_dy = -2, 1  # Down-left
+            elif c < 100: pupil_dx, pupil_dy = -2, -1  # Up-left
+            else: pupil_dx, pupil_dy = 0, -2  # Up
+
+            msg = "PLAY WITH ME!"
+
+        elif big_cycle == 3:
+            # Hide and seek
+            c = cycle
+            if c < 25:
+                pass
+            elif c < 40:
+                left_state = 'closed'
+                right_state = 'closed'
+            elif c < 60:
+                left_state = 'hidden'
+                right_state = 'hidden'
+            elif c < 78:
+                left_state = 'hidden'
+                pupil_dx, pupil_dy = -2, 0
+            elif c < 90:
+                left_state = 'hidden'
+                right_state = 'hidden'
+            elif c < 108:
+                right_state = 'hidden'
+                pupil_dx, pupil_dy = 2, 0
+            else:
+                pupil_dx, pupil_dy = 0, 0
+
+            msg = "PEEK A BOO!"
+
+        elif big_cycle == 4:
+            # Dizzy
+            c = cycle
+            if c < 95:
+                left_state = 'dizzy'
+                right_state = 'dizzy'
+            else:
+                pupil_dx, pupil_dy = 0, 0
+
+            msg = "PRESS TO PLAY!"
+
+        elif big_cycle == 5:
+            # Cross-eyed then opposite
+            c = cycle
+            if c in range(35, 43):
+                left_state = 'closed'
+                right_state = 'closed'
+            elif c in range(80, 88):
+                left_state = 'closed'
+                right_state = 'closed'
+
+            # Eyes look at each other then away
+            if c < 35:
+                pupil_dx, pupil_dy = 2, 0  # Both look right (cross-eyed effect)
+            elif c < 55:
+                pupil_dx, pupil_dy = 0, 0  # Center
+            elif c < 80:
+                pupil_dx, pupil_dy = -2, 0  # Both look left
+            elif c < 100:
+                pupil_dx, pupil_dy = 0, -2  # Both look up
+            else:
+                pupil_dx, pupil_dy = 0, 0
+
+            msg = "AWESOME!"
+
+        elif big_cycle == 6:
+            # Suspicious
+            c = cycle
+            if c < 35:
+                pupil_dx, pupil_dy = -2, 0
+            elif c < 70:
+                pupil_dx, pupil_dy = 2, 0
+            elif c < 85:
+                left_state = 'half'
+                right_state = 'half'
+            elif c < 105:
+                pupil_dx, pupil_dy = 2, 1
+            else:
+                left_state = 'closed'
+                pupil_dx, pupil_dy = -2, 0
+
+            msg = "I SEE YOU!"
+
+        elif big_cycle == 7:
+            # Crazy rapid
+            c = cycle % 60
+            if c % 8 < 3:
+                left_state = 'closed'
+            if (c + 4) % 8 < 3:
+                right_state = 'closed'
+            positions = [(0, 0), (2, -1), (-2, 1), (1, 2), (-1, -2), (2, 2)]
+            pupil_dx, pupil_dy = positions[(c // 6) % len(positions)]
+
+            msg = "PRESS TO PLAY!"
+
+        draw_anime_eye(eye_left_x, eye_y, left_state, pupil_dx, pupil_dy)
+        draw_anime_eye(eye_right_x, eye_y, right_state, pupil_dx, pupil_dy)
+
+        self.display.draw_centered_text(13, msg)
 
     def _render_game(self):
         """Render game play."""
@@ -670,15 +974,14 @@ class Game:
 
     def _render_gameover(self):
         """Render game over screen."""
-        # Draw "GAME OVER" text
-        self.display.draw_centered_text(1, "GAME")
-        self.display.draw_centered_text(7, "OVER")
+        # Draw "GAME OVER" text - single line, larger
+        self.display.draw_centered_text(1, "GAME OVER")
 
-        # Draw score and high score
-        score_str = str(self.score)
-        hi_str = "HI " + str(self.high_score)
-        self.display.draw_text(2, 14, score_str)
-        self.display.draw_text(WIDTH - len(hi_str) * 4, 14, hi_str)
+        # Draw score and high score with labels
+        score_str = "SCORE " + str(self.score)
+        hi_str = "HIGH SCORE " + str(self.high_score)
+        self.display.draw_centered_text(8, score_str)
+        self.display.draw_centered_text(14, hi_str)
 
 
 def main():

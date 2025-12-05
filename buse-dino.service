@@ -4,7 +4,7 @@ After=multi-user.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 /opt/buse-dino/dino.py --no-duck
+ExecStart=/usr/bin/python3 /opt/dino.py --no-duck
 Restart=always
 RestartSec=3
 User=root
