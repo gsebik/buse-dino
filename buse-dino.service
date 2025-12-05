@@ -1,0 +1,16 @@
+[Unit]
+Description=BUSE Dino Game
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/buse-dino/dino.py --no-duck
+Restart=always
+RestartSec=3
+User=root
+StandardInput=null
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
