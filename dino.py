@@ -323,51 +323,51 @@ class Sound:
 
     def _generate_blink(self, filename, sample_rate=22050):
         """Blink - quick descending two-note like Zelda item."""
-        self._generate_arpeggio(filename, [880, 660], note_duration=0.06, volume=0.25)
+        self._generate_arpeggio(filename, [880, 660], note_duration=0.06, volume=0.7)
 
     def _generate_wink(self, filename, sample_rate=22050):
         """Wink - playful three-note ascending like Mario coin."""
-        self._generate_arpeggio(filename, [523, 659, 784], note_duration=0.07, volume=0.28)
+        self._generate_arpeggio(filename, [523, 659, 784], note_duration=0.07, volume=0.75)
 
     def _generate_whoosh(self, filename, sample_rate=22050):
         """Look/whoosh - sweeping sound like Sonic spin."""
-        self._generate_sweep(filename, 300, 800, 0.15, volume=0.22)
+        self._generate_sweep(filename, 300, 800, 0.15, volume=0.65)
 
     def _generate_surprise(self, filename, sample_rate=22050):
         """Surprise - dramatic rising arpeggio like Pokemon encounter."""
-        self._generate_arpeggio(filename, [392, 494, 587, 784], note_duration=0.08, volume=0.3)
+        self._generate_arpeggio(filename, [392, 494, 587, 784], note_duration=0.08, volume=0.8)
 
     def _generate_sleepy(self, filename, sample_rate=22050):
         """Sleepy - slow descending notes like lullaby."""
-        self._generate_arpeggio(filename, [523, 440, 349, 294], note_duration=0.15, volume=0.2)
+        self._generate_arpeggio(filename, [523, 440, 349, 294], note_duration=0.15, volume=0.6)
 
     def _generate_dizzy(self, filename, sample_rate=22050):
         """Dizzy - wobbling disorienting sound."""
-        self._generate_wobble(filename, 400, 8, 0.4, volume=0.22)
+        self._generate_wobble(filename, 400, 8, 0.4, volume=0.65)
 
     def _generate_peek(self, filename, sample_rate=22050):
         """Peek-a-boo - playful reveal like Mario power-up."""
-        self._generate_arpeggio(filename, [262, 330, 392, 523], note_duration=0.08, volume=0.28)
+        self._generate_arpeggio(filename, [262, 330, 392, 523], note_duration=0.08, volume=0.75)
 
     def _generate_hypno(self, filename, sample_rate=22050):
         """Hypno - mysterious wavering tones."""
-        self._generate_wobble(filename, 350, 4, 0.5, volume=0.2)
+        self._generate_wobble(filename, 350, 4, 0.5, volume=0.6)
 
     def _generate_bounce(self, filename, sample_rate=22050):
         """Bounce - springy boing like classic platformer jump."""
-        self._generate_sweep(filename, 200, 600, 0.12, volume=0.28)
+        self._generate_sweep(filename, 200, 600, 0.12, volume=0.75)
 
     def _generate_nervous(self, filename, sample_rate=22050):
         """Nervous - trembling rapid notes."""
-        self._generate_arpeggio(filename, [440, 466, 440, 466, 440], note_duration=0.05, volume=0.2)
+        self._generate_arpeggio(filename, [440, 466, 440, 466, 440], note_duration=0.05, volume=0.6)
 
     def _generate_search(self, filename, sample_rate=22050):
         """Search - curious looking around sound."""
-        self._generate_arpeggio(filename, [392, 440, 392, 349], note_duration=0.1, volume=0.22)
+        self._generate_arpeggio(filename, [392, 440, 392, 349], note_duration=0.1, volume=0.65)
 
     def _generate_flirt(self, filename, sample_rate=22050):
         """Flirt - sweet melodic phrase like dating sim."""
-        self._generate_arpeggio(filename, [523, 659, 784, 659, 523], note_duration=0.08, volume=0.25)
+        self._generate_arpeggio(filename, [523, 659, 784, 659, 523], note_duration=0.08, volume=0.7)
 
     def play(self, name):
         """Play a sound effect (non-blocking)."""
