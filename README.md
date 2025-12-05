@@ -11,7 +11,7 @@ Dinosaur jumping game for BUSE 128x19 LED display (Chrome-style no-internet game
 ## Requirements
 
 ```bash
-sudo apt install python3-evdev
+sudo apt install python3-evdev espeak alsa-utils
 ```
 
 ## Usage
@@ -31,6 +31,9 @@ python3 dino.py --fb-path /dev/fb1
 
 # Jump-only mode (birds at jumpable height, no duck needed - for single button setups)
 python3 dino.py --no-duck
+
+# Disable sound effects
+python3 dino.py --no-sound
 ```
 
 ## Install as systemd service
@@ -65,3 +68,17 @@ sudo journalctl -u buse-dino -f
 - Auto-returns to start screen after game over
 - 60 FPS smooth animations
 - 4x5 pixel font for clear text readability
+
+## Sound Features
+
+- Retro-style sound effects inspired by classic games (Mario, Zelda, Sonic, Pokemon)
+- Text-to-speech announces animation messages using espeak
+- Sound effects include:
+  - Jump sound when dinosaur jumps
+  - Cheerful arpeggio when scoring points
+  - Triumphant fanfare every 100 points (milestone)
+  - Speed-up warning sound when game accelerates
+  - Dramatic game over melody
+  - Various animation sounds (wink, peek, dizzy, bounce, etc.)
+- All sounds generated programmatically (no external audio files needed)
+- Use `--no-sound` flag to disable all audio

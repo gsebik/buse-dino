@@ -18,10 +18,14 @@ Usage:
 """
 
 import argparse
+import math
 import os
 import random
+import subprocess
 import sys
 import time
+import wave
+import struct
 from select import select
 
 try:
@@ -29,6 +33,369 @@ try:
     HAS_EVDEV = True
 except ImportError:
     HAS_EVDEV = False
+
+
+class Sound:
+    """Simple sound effects using aplay and generated WAV tones."""
+
+    def __init__(self, enabled=True):
+        self.enabled = enabled
+        self.sound_dir = "/tmp/dino_sounds"
+        if enabled:
+            self._set_volume()
+            self._init_sounds()
+
+    def _set_volume(self):
+        """Set system volume to 100%."""
+        try:
+            subprocess.run(["amixer", "set", "Master", "100%"],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+        try:
+            subprocess.run(["amixer", "set", "PCM", "100%"],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+
+    def _init_sounds(self):
+        """Generate sound effect WAV files."""
+        try:
+            os.makedirs(self.sound_dir, exist_ok=True)
+            # Generate simple tone WAV files
+            self._generate_tone("jump.wav", freq=600, duration=0.08, freq_end=900)
+            self._generate_cheerful("score.wav")  # Cheerful arpeggio for points
+            self._generate_milestone("milestone.wav")  # Every 100 points celebration
+            self._generate_speedup("speedup.wav")  # Speed increase warning
+            self._generate_gameover("gameover.wav")  # Classic game over melody
+            self._generate_fanfare("start.wav")  # Game start fanfare
+            # Animation sounds - more expressive
+            self._generate_blink("blink.wav")  # Soft blink
+            self._generate_wink("wink.wav")  # Playful wink
+            self._generate_whoosh("look.wav")  # Eye movement whoosh
+            self._generate_surprise("surprise.wav")  # Surprised eyes
+            self._generate_sleepy("sleepy.wav")  # Drowsy sound
+            self._generate_dizzy("dizzy.wav")  # Spinning dizzy
+            self._generate_peek("peek.wav")  # Peek-a-boo reveal
+            self._generate_hypno("hypno.wav")  # Hypnotic swirl
+            self._generate_bounce("bounce.wav")  # Bouncy boing
+            self._generate_nervous("nervous.wav")  # Nervous shake
+            self._generate_search("search.wav")  # Searching around
+            self._generate_flirt("flirt.wav")  # Flirty sound
+        except Exception:
+            self.enabled = False
+
+    def _generate_tone(self, filename, freq, duration, freq_end=None, sample_rate=22050):
+        """Generate a simple tone WAV file."""
+        if freq_end is None:
+            freq_end = freq
+
+        filepath = os.path.join(self.sound_dir, filename)
+        n_samples = int(sample_rate * duration)
+
+        with wave.open(filepath, 'w') as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(sample_rate)
+
+            for i in range(n_samples):
+                t = i / sample_rate
+                # Linear frequency sweep
+                f = freq + (freq_end - freq) * (i / n_samples)
+                # Generate sample with envelope
+                envelope = min(1.0, min(i, n_samples - i) / (sample_rate * 0.01))
+                sample = int(24000 * envelope * (((int(f * t * 2) % 2) * 2) - 1))
+                wav.writeframes(struct.pack('<h', sample))
+
+    def _generate_cheerful(self, filename, sample_rate=22050):
+        """Generate a cheerful arpeggio sound for scoring."""
+        filepath = os.path.join(self.sound_dir, filename)
+        # Quick ascending arpeggio: C5, E5, G5
+        notes = [523, 659, 784]
+        note_duration = 0.04
+        total_samples = int(sample_rate * note_duration * len(notes))
+
+        with wave.open(filepath, 'w') as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(sample_rate)
+
+            for i in range(total_samples):
+                t = i / sample_rate
+                note_idx = min(int(i / (sample_rate * note_duration)), len(notes) - 1)
+                f = notes[note_idx]
+                # Envelope for each note
+                note_pos = i % int(sample_rate * note_duration)
+                note_len = int(sample_rate * note_duration)
+                envelope = min(1.0, min(note_pos, note_len - note_pos) / (sample_rate * 0.005))
+                sample = int(24000 * envelope * (((int(f * t * 2) % 2) * 2) - 1))
+                wav.writeframes(struct.pack('<h', sample))
+
+    def _generate_gameover(self, filename, sample_rate=22050):
+        """Generate a dramatic game over melody."""
+        filepath = os.path.join(self.sound_dir, filename)
+        # Dramatic descending game over - minor key, slower
+        notes = [
+            (440, 0.2),    # A4
+            (415, 0.2),    # G#4
+            (392, 0.2),    # G4
+            (370, 0.25),   # F#4
+            (0, 0.15),     # pause
+            (330, 0.2),    # E4
+            (311, 0.2),    # D#4
+            (294, 0.25),   # D4
+            (0, 0.1),      # pause
+            (220, 0.5),    # A3 (long low)
+            (147, 0.6),    # D3 (even lower, dramatic end)
+        ]
+
+        total_duration = sum(d for _, d in notes)
+        total_samples = int(sample_rate * total_duration)
+
+        with wave.open(filepath, 'w') as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(sample_rate)
+
+            sample_pos = 0
+            for freq, duration in notes:
+                note_samples = int(sample_rate * duration)
+                for i in range(note_samples):
+                    t = sample_pos / sample_rate
+                    if freq == 0:
+                        sample = 0
+                    else:
+                        # Envelope with slower decay for drama
+                        attack = min(1.0, i / (sample_rate * 0.015))
+                        decay = max(0.2, 1.0 - (i / note_samples) * 0.6)
+                        envelope = attack * decay
+                        sample = int(24000 * envelope * (((int(freq * t * 2) % 2) * 2) - 1))
+                    wav.writeframes(struct.pack('<h', sample))
+                    sample_pos += 1
+
+    def _generate_milestone(self, filename, sample_rate=22050):
+        """Generate celebratory sound for every 100 points."""
+        filepath = os.path.join(self.sound_dir, filename)
+        # Triumphant ascending fanfare
+        notes = [
+            (523, 0.1),    # C5
+            (659, 0.1),    # E5
+            (784, 0.1),    # G5
+            (1047, 0.25),  # C6 (high, held)
+            (784, 0.08),   # G5
+            (1047, 0.3),   # C6 (final flourish)
+        ]
+
+        total_duration = sum(d for _, d in notes)
+        total_samples = int(sample_rate * total_duration)
+
+        with wave.open(filepath, 'w') as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(sample_rate)
+
+            sample_pos = 0
+            for freq, duration in notes:
+                note_samples = int(sample_rate * duration)
+                for i in range(note_samples):
+                    t = sample_pos / sample_rate
+                    attack = min(1.0, i / (sample_rate * 0.008))
+                    decay = max(0.4, 1.0 - (i / note_samples) * 0.4)
+                    envelope = attack * decay
+                    sample = int(24000 * envelope * (((int(freq * t * 2) % 2) * 2) - 1))
+                    wav.writeframes(struct.pack('<h', sample))
+                    sample_pos += 1
+
+    def _generate_speedup(self, filename, sample_rate=22050):
+        """Generate accelerating sound for speed increase."""
+        filepath = os.path.join(self.sound_dir, filename)
+        duration = 0.25
+        n_samples = int(sample_rate * duration)
+
+        with wave.open(filepath, 'w') as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(sample_rate)
+
+            for i in range(n_samples):
+                t = i / sample_rate
+                progress = i / n_samples
+                # Accelerating frequency sweep
+                freq = 300 + (800 * progress * progress)
+                envelope = min(1.0, min(i, n_samples - i) / (sample_rate * 0.02))
+                sample = int(20000 * envelope * (((int(freq * t * 2) % 2) * 2) - 1))
+                wav.writeframes(struct.pack('<h', sample))
+
+    def _generate_fanfare(self, filename, sample_rate=22050):
+        """Generate game start fanfare."""
+        filepath = os.path.join(self.sound_dir, filename)
+        notes = [
+            (392, 0.12),   # G4
+            (523, 0.12),   # C5
+            (659, 0.15),   # E5
+            (784, 0.25),   # G5
+        ]
+
+        total_duration = sum(d for _, d in notes)
+        total_samples = int(sample_rate * total_duration)
+
+        with wave.open(filepath, 'w') as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(sample_rate)
+
+            sample_pos = 0
+            for freq, duration in notes:
+                note_samples = int(sample_rate * duration)
+                for i in range(note_samples):
+                    t = sample_pos / sample_rate
+                    attack = min(1.0, i / (sample_rate * 0.01))
+                    decay = max(0.5, 1.0 - (i / note_samples) * 0.3)
+                    envelope = attack * decay
+                    sample = int(24000 * envelope * (((int(freq * t * 2) % 2) * 2) - 1))
+                    wav.writeframes(struct.pack('<h', sample))
+                    sample_pos += 1
+
+    def _generate_arpeggio(self, filename, notes, note_duration=0.08, volume=0.3, sample_rate=22050):
+        """Generate an arpeggio (sequence of notes) like classic games."""
+        filepath = os.path.join(self.sound_dir, filename)
+        total_samples = int(sample_rate * note_duration * len(notes))
+
+        with wave.open(filepath, 'w') as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(sample_rate)
+
+            for i in range(total_samples):
+                t = i / sample_rate
+                note_idx = min(int(i / (sample_rate * note_duration)), len(notes) - 1)
+                freq = notes[note_idx]
+                # Classic game-style envelope per note
+                note_pos = i % int(sample_rate * note_duration)
+                note_len = int(sample_rate * note_duration)
+                # Quick attack, gentle decay
+                attack = min(1.0, note_pos / (sample_rate * 0.008))
+                decay = max(0.3, 1.0 - (note_pos / note_len) * 0.5)
+                envelope = attack * decay
+                # Mix sine with slight square for retro feel
+                tone = 0.7 * math.sin(2 * math.pi * freq * t) + 0.3 * math.sin(2 * math.pi * freq * 2 * t)
+                sample = int(24000 * volume * envelope * tone)
+                wav.writeframes(struct.pack('<h', max(-32767, min(32767, sample))))
+
+    def _generate_sweep(self, filename, start_freq, end_freq, duration, volume=0.25, sample_rate=22050):
+        """Generate a frequency sweep sound."""
+        filepath = os.path.join(self.sound_dir, filename)
+        n_samples = int(sample_rate * duration)
+
+        with wave.open(filepath, 'w') as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(sample_rate)
+
+            for i in range(n_samples):
+                t = i / sample_rate
+                progress = i / n_samples
+                freq = start_freq + (end_freq - start_freq) * progress
+                envelope = min(1.0, min(i, n_samples - i) / (sample_rate * 0.015))
+                tone = math.sin(2 * math.pi * freq * t)
+                sample = int(24000 * volume * envelope * tone)
+                wav.writeframes(struct.pack('<h', sample))
+
+    def _generate_wobble(self, filename, base_freq, wobble_freq, duration, volume=0.25, sample_rate=22050):
+        """Generate a wobbling/vibrato sound."""
+        filepath = os.path.join(self.sound_dir, filename)
+        n_samples = int(sample_rate * duration)
+
+        with wave.open(filepath, 'w') as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(sample_rate)
+
+            for i in range(n_samples):
+                t = i / sample_rate
+                progress = i / n_samples
+                # Wobbling frequency
+                freq = base_freq + 50 * math.sin(2 * math.pi * wobble_freq * t)
+                envelope = (1 - progress) ** 0.8
+                tone = math.sin(2 * math.pi * freq * t)
+                sample = int(24000 * volume * envelope * tone)
+                wav.writeframes(struct.pack('<h', sample))
+
+    def _generate_blink(self, filename, sample_rate=22050):
+        """Blink - quick descending two-note like Zelda item."""
+        self._generate_arpeggio(filename, [880, 660], note_duration=0.06, volume=0.25)
+
+    def _generate_wink(self, filename, sample_rate=22050):
+        """Wink - playful three-note ascending like Mario coin."""
+        self._generate_arpeggio(filename, [523, 659, 784], note_duration=0.07, volume=0.28)
+
+    def _generate_whoosh(self, filename, sample_rate=22050):
+        """Look/whoosh - sweeping sound like Sonic spin."""
+        self._generate_sweep(filename, 300, 800, 0.15, volume=0.22)
+
+    def _generate_surprise(self, filename, sample_rate=22050):
+        """Surprise - dramatic rising arpeggio like Pokemon encounter."""
+        self._generate_arpeggio(filename, [392, 494, 587, 784], note_duration=0.08, volume=0.3)
+
+    def _generate_sleepy(self, filename, sample_rate=22050):
+        """Sleepy - slow descending notes like lullaby."""
+        self._generate_arpeggio(filename, [523, 440, 349, 294], note_duration=0.15, volume=0.2)
+
+    def _generate_dizzy(self, filename, sample_rate=22050):
+        """Dizzy - wobbling disorienting sound."""
+        self._generate_wobble(filename, 400, 8, 0.4, volume=0.22)
+
+    def _generate_peek(self, filename, sample_rate=22050):
+        """Peek-a-boo - playful reveal like Mario power-up."""
+        self._generate_arpeggio(filename, [262, 330, 392, 523], note_duration=0.08, volume=0.28)
+
+    def _generate_hypno(self, filename, sample_rate=22050):
+        """Hypno - mysterious wavering tones."""
+        self._generate_wobble(filename, 350, 4, 0.5, volume=0.2)
+
+    def _generate_bounce(self, filename, sample_rate=22050):
+        """Bounce - springy boing like classic platformer jump."""
+        self._generate_sweep(filename, 200, 600, 0.12, volume=0.28)
+
+    def _generate_nervous(self, filename, sample_rate=22050):
+        """Nervous - trembling rapid notes."""
+        self._generate_arpeggio(filename, [440, 466, 440, 466, 440], note_duration=0.05, volume=0.2)
+
+    def _generate_search(self, filename, sample_rate=22050):
+        """Search - curious looking around sound."""
+        self._generate_arpeggio(filename, [392, 440, 392, 349], note_duration=0.1, volume=0.22)
+
+    def _generate_flirt(self, filename, sample_rate=22050):
+        """Flirt - sweet melodic phrase like dating sim."""
+        self._generate_arpeggio(filename, [523, 659, 784, 659, 523], note_duration=0.08, volume=0.25)
+
+    def play(self, name):
+        """Play a sound effect (non-blocking)."""
+        if not self.enabled:
+            return
+        filepath = os.path.join(self.sound_dir, f"{name}.wav")
+        if os.path.exists(filepath):
+            try:
+                subprocess.Popen(
+                    ["aplay", "-q", filepath],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+            except Exception:
+                pass
+
+    def speak(self, text, speed=150, pitch=50):
+        """Speak text using espeak (non-blocking)."""
+        if not self.enabled:
+            return
+        try:
+            subprocess.Popen(
+                ["espeak", "-s", str(speed), "-p", str(pitch), text],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+        except Exception:
+            pass
 
 
 # Display configuration
@@ -624,10 +991,11 @@ class Game:
     INITIAL_SPEED = 0.6  # Tuned for 60fps
     MAX_SPEED = 2.4  # Tuned for 60fps
 
-    def __init__(self, display, input_handler, duck_enabled=True):
+    def __init__(self, display, input_handler, duck_enabled=True, sound_enabled=True):
         self.display = display
         self.input = input_handler
         self.duck_enabled = duck_enabled
+        self.sound = Sound(enabled=sound_enabled)
         self.state = 'start'  # start, playing, gameover
         self.score = 0
         self.high_score = 0
@@ -640,7 +1008,8 @@ class Game:
         # Randomized scene order for start screen animations
         self.scene_order = list(range(16))
         random.shuffle(self.scene_order)
-        self.current_scene_idx = 0
+        self.current_scene_idx = -1  # Start at -1 so first scene triggers speech
+        self.last_sound_frame = -1  # Track last sound to avoid repeats
 
     def reset(self):
         """Reset game state for a new game."""
@@ -670,8 +1039,12 @@ class Game:
             if jump:
                 self.state = 'playing'
                 self.reset()
+                self.sound.play("start")
+                self.sound.speak("Go!", speed=180, pitch=80)
 
         elif self.state == 'playing':
+            if jump and self.dino.on_ground and not self.dino.ducking:
+                self.sound.play("jump")
             if jump:
                 self.dino.jump()
 
@@ -695,7 +1068,14 @@ class Game:
                 if obs.x + obs.width > 0:
                     new_obstacles.append(obs)
                 else:
+                    old_score = self.score
                     self.score += 10
+                    # Play milestone sound every 100 points
+                    if self.score // 100 > old_score // 100:
+                        self.sound.play("milestone")
+                        self.sound.speak(f"{self.score} points!", speed=160, pitch=70)
+                    else:
+                        self.sound.play("score")
             self.obstacles = new_obstacles
 
             # Check collisions
@@ -704,8 +1084,12 @@ class Game:
                 if self.check_collision(dino_box, obs.get_hitbox()):
                     self.state = 'gameover'
                     self.animation_frame = 0
+                    self.sound.play("gameover")
                     if self.score > self.high_score:
                         self.high_score = self.score
+                        self.sound.speak(f"Game over! New high score {self.score}!", speed=130, pitch=40)
+                    else:
+                        self.sound.speak(f"Game over! Score {self.score}", speed=130, pitch=40)
                     break
 
             # Update ground scroll
@@ -714,9 +1098,13 @@ class Game:
                 self.ground_offset -= 8
 
             # Increase difficulty gradually
+            old_speed = self.speed
             self.speed = self.INITIAL_SPEED + self.score // 100 * 0.12  # Tuned for 60fps
             if self.speed > self.MAX_SPEED:
                 self.speed = self.MAX_SPEED
+            # Play speedup sound when speed increases
+            if self.speed > old_speed and old_speed > self.INITIAL_SPEED:
+                self.sound.play("speedup")
 
         elif self.state == 'gameover':
             self.animation_frame += 1
@@ -729,7 +1117,7 @@ class Game:
                 self.animation_frame = 0
                 # Reshuffle scenes for fresh start screen
                 random.shuffle(self.scene_order)
-                self.current_scene_idx = 0
+                self.current_scene_idx = -1  # Reset to -1 so first scene triggers speech
 
         return True
 
@@ -746,6 +1134,12 @@ class Game:
 
         self.display.render()
 
+    def _play_anim_sound(self, sound_name):
+        """Play animation sound only once per frame."""
+        if self.animation_frame != self.last_sound_frame:
+            self.sound.play(sound_name)
+            self.last_sound_frame = self.animation_frame
+
     def _render_start_screen(self):
         """Render animated start screen with anime-style face and varied animations."""
         # Different animation scenes - 120 frames per scene at 60fps = 2 seconds each
@@ -758,6 +1152,28 @@ class Game:
             # Reshuffle when we complete all scenes
             if new_scene_idx == 0:
                 random.shuffle(self.scene_order)
+            # Speak the message for the new scene
+            scene_messages = {
+                0: "Press to play!",
+                1: "Wake me up!",
+                2: "Play with me!",
+                3: "Peek a boo!",
+                4: "Press to play!",
+                5: "Awesome!",
+                6: "I see you!",
+                7: "Press to play!",
+                8: "Hypnotizing!",
+                9: "Boing boing!",
+                10: "Interesting!",
+                11: "Come play!",
+                12: "So nervous!",
+                13: "Where is it?",
+                14: "Hey there!",
+                15: "Press to play!",
+            }
+            scene = self.scene_order[self.current_scene_idx]
+            if scene in scene_messages:
+                self.sound.speak(scene_messages[scene], speed=140, pitch=60)
 
         big_cycle = self.scene_order[self.current_scene_idx]
 
@@ -825,6 +1241,8 @@ class Game:
         if big_cycle == 0:
             # Normal looking around - with very smooth transitions
             c = cycle
+            if c == 0: self._play_anim_sound("wink")
+
             if c in range(18, 26):
                 left_state = 'closed'
                 right_state = 'closed'
@@ -859,6 +1277,8 @@ class Game:
         elif big_cycle == 1:
             # Sleepy then wake up
             c = cycle
+            if c == 0: self._play_anim_sound("sleepy")
+
             if c < 38:
                 left_state = 'half'
                 right_state = 'half'
@@ -885,6 +1305,8 @@ class Game:
         elif big_cycle == 2:
             # Full eye roll circle - very smooth
             c = cycle
+            if c == 0: self._play_anim_sound("look")
+
             if c in range(54, 64):
                 left_state = 'closed'
                 right_state = 'closed'
@@ -922,6 +1344,8 @@ class Game:
         elif big_cycle == 3:
             # Hide and seek
             c = cycle
+            if c == 0: self._play_anim_sound("peek")
+
             if c < 24:
                 pass
             elif c < 39:
@@ -955,6 +1379,8 @@ class Game:
         elif big_cycle == 4:
             # Dizzy
             c = cycle
+            if c == 0: self._play_anim_sound("dizzy")
+
             if c < 98:
                 left_state = 'dizzy'
                 right_state = 'dizzy'
@@ -972,6 +1398,8 @@ class Game:
         elif big_cycle == 5:
             # Cross-eyed then opposite - with smooth transitions
             c = cycle
+            if c == 0: self._play_anim_sound("blink")
+
             if c in range(35, 45):
                 left_state = 'closed'
                 right_state = 'closed'
@@ -997,6 +1425,7 @@ class Game:
         elif big_cycle == 6:
             # Suspicious - with very smooth transitions
             c = cycle
+            if c == 0: self._play_anim_sound("look")
             # Smooth left to right
             if c < 5: pupil_dx, pupil_dy = 0, 0
             elif c < 10: pupil_dx, pupil_dy = -1, 0
@@ -1027,6 +1456,8 @@ class Game:
         elif big_cycle == 7:
             # Crazy rapid - very smooth with many positions
             c = cycle
+            if c == 0: self._play_anim_sound("dizzy")
+
             if c % 12 < 5:
                 left_state = 'closed'
             if (c + 6) % 12 < 5:
@@ -1046,6 +1477,7 @@ class Game:
         elif big_cycle == 8:
             # Hypnotic - eyes move in opposite directions
             c = cycle
+            if c == 0: self._play_anim_sound("hypno")
             # Smooth circular motion, eyes go opposite ways
             angle_steps = [
                 (0, -2), (1, -2), (2, -1), (2, 0), (2, 1), (1, 2), (0, 2),
@@ -1062,6 +1494,8 @@ class Game:
         elif big_cycle == 9:
             # Bouncy - eyes look up and down like following a ball
             c = cycle
+            if c == 0: self._play_anim_sound("bounce")
+
             if c in range(25, 35):
                 left_state = 'wide'
                 right_state = 'wide'
@@ -1090,6 +1524,8 @@ class Game:
         elif big_cycle == 10:
             # Reading - eyes scan left to right like reading text
             c = cycle
+            if c == 0: self._play_anim_sound("look")
+
             if c in range(55, 65):
                 left_state = 'closed'
                 right_state = 'closed'
@@ -1111,6 +1547,8 @@ class Game:
         elif big_cycle == 11:
             # Alternating winks with smooth pupil
             c = cycle
+            if c == 0: self._play_anim_sound("flirt")
+
             # Wink pattern
             if c < 20:
                 pass  # Both open
@@ -1138,8 +1576,10 @@ class Game:
             msg = "COME PLAY!"
 
         elif big_cycle == 12:
-            #震える (Shaking/Trembling) - nervous shaking eyes
+            # Shaking/Trembling - nervous shaking eyes
             c = cycle
+            if c == 0: self._play_anim_sound("nervous")
+
             if c in range(60, 75):
                 left_state = 'wide'
                 right_state = 'wide'
@@ -1154,6 +1594,8 @@ class Game:
         elif big_cycle == 13:
             # Searching - looking around frantically
             c = cycle
+            if c == 0: self._play_anim_sound("search")
+
             if c in range(30, 40) or c in range(80, 90):
                 left_state = 'wide'
                 right_state = 'wide'
@@ -1172,6 +1614,8 @@ class Game:
         elif big_cycle == 14:
             # Flirty - batting eyelashes with playful look
             c = cycle
+            if c == 0: self._play_anim_sound("flirt")
+
             # Quick blinks
             if c in range(15, 20) or c in range(35, 40) or c in range(55, 60):
                 left_state = 'closed'
@@ -1197,6 +1641,8 @@ class Game:
         elif big_cycle == 15:
             # Figure 8 - smooth figure 8 pattern
             c = cycle
+            if c == 0: self._play_anim_sound("hypno")
+
             if c in range(58, 68):
                 left_state = 'closed'
                 right_state = 'closed'
@@ -1259,6 +1705,8 @@ def main():
                         help='Framebuffer device path')
     parser.add_argument('--no-duck', action='store_true',
                         help='Disable duck mechanic (jump only, no birds)')
+    parser.add_argument('--no-sound', action='store_true',
+                        help='Disable sound effects')
     args = parser.parse_args()
 
     global FB_PATH
@@ -1276,7 +1724,7 @@ def main():
     display = Display(use_framebuffer=use_fb, use_terminal=use_term)
     input_handler = InputHandler(use_terminal_input=use_term)
 
-    game = Game(display, input_handler, duck_enabled=not args.no_duck)
+    game = Game(display, input_handler, duck_enabled=not args.no_duck, sound_enabled=not args.no_sound)
 
     try:
         last_frame = time.time()
