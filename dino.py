@@ -6,9 +6,14 @@ A Chrome-style dinosaur jumping game for the BUSE framebuffer display.
 Supports both framebuffer output and terminal test mode.
 
 Controls:
-  - Enter/PageUp: Jump / Start game
-  - Space: Duck (to avoid birds)
-  - Escape: Quit
+  Keyboard:
+    - Enter/PageUp/Up: Jump / Start game
+    - Space/Down: Duck (to avoid birds)
+    - Escape: Quit
+  Gamepad (GameSir Nova Lite / Xbox-style):
+    - A Button: Jump / Start game
+    - B Button: Duck
+    - Start/Select: Start game
 
 Usage:
   python3 dino.py              # Framebuffer mode (default)
@@ -406,14 +411,17 @@ BUFFER_SIZE = BYTES_PER_ROW * HEIGHT
 
 # Game physics (tuned for 60fps)
 # Lower gravity = longer air time, higher jump velocity = higher jump
-GRAVITY = 0.10
-JUMP_VELOCITY = -1.7
+GRAVITY = 0.12
+JUMP_VELOCITY = -1.45  # Reduced to keep dino on screen (max height ~9 pixels)
 GROUND_Y = HEIGHT - 1
 
 # Timing
 FRAME_INTERVAL = 0.016  # ~60 FPS for smoother animations
 OBSTACLE_SPAWN_MIN = 1.5
 OBSTACLE_SPAWN_MAX = 3.0
+
+# Lives system
+MAX_LIVES = 3
 
 # Dinosaur sprite (7x9 pixels) - running frame 1
 DINO_SPRITE_1 = [
@@ -500,6 +508,69 @@ BIRD_1 = [
 BIRD_2 = [
     " X ",
     "X X",
+]
+
+# UFO sprite (appears at 2000+ points)
+UFO_1 = [
+    "  XXX  ",
+    " XXXXX ",
+    "XXXXXXX",
+    " X X X ",
+]
+
+UFO_2 = [
+    "  XXX  ",
+    " XXXXX ",
+    "XXXXXXX",
+    "X X X X",
+]
+
+# Meteor sprite (appears at 2000+ points)
+METEOR = [
+    " XX",
+    "XXX",
+    " X ",
+]
+
+# Comet sprite
+COMET = [
+    "   X",
+    "  XX",
+    " XXX",
+    "XXXX",
+]
+
+# Robot sprite (appears at 1500+ points)
+ROBOT = [
+    " XXX ",
+    "XXXXX",
+    " X X ",
+    "XXXXX",
+    " X X ",
+]
+
+# Volcano sprites for eruption animation
+VOLCANO_BASE = [
+    "    X    ",
+    "   XXX   ",
+    "  XXXXX  ",
+    " XXXXXXX ",
+    "XXXXXXXXX",
+]
+
+# Lava/eruption particles
+LAVA_PARTICLES = [
+    ["X", " ", "X", " ", "X"],
+    [" ", "X", " ", "X", " "],
+    ["X", " ", "X", " ", "X"],
+]
+
+# Heart sprite for lives display
+HEART = [
+    " X X ",
+    "XXXXX",
+    " XXX ",
+    "  X  ",
 ]
 
 # 4x5 pixel font for text (wider and clearer)
@@ -738,30 +809,65 @@ class Display:
 
 
 class InputHandler:
-    """Handle keyboard input via evdev or stdin fallback."""
+    """Handle keyboard input via evdev and/or stdin."""
 
     def __init__(self, use_terminal_input=False):
         self.use_terminal_input = use_terminal_input
-        self.keyboards = []  # Support multiple keyboards
+        self.keyboards = []  # Support multiple keyboards/gamepads
+        self.gamepads = []   # Track gamepads separately for 2-player
         self.jump_pressed = False
         self.duck_pressed = False
         self.quit_requested = False
         self.old_settings = None
 
+        # Pong controls (for multiplayer)
+        self.p1_up = False
+        self.p1_down = False
+        self.p2_up = False
+        self.p2_down = False
+
+        # Game selection
+        self.select_pong = False  # BTN_B pressed on start screen
+        self.select_snake = False  # BTN_Y pressed on start screen
+        self.select_draw = False   # BTN_START for draw
+        self.back_to_menu = False  # BTN_X to exit game
+        self.draw_button = False  # BTN_TL to draw
+
+        # Joystick for draw game (left stick)
+        self.stick_x = 0  # -1, 0, or 1
+        self.stick_y = 0
+        # Right joystick - tracked per player for multiplayer
+        # Now stores actual analog value (0-255, 128=center) for smooth control
+        self.rstick_x = 128
+        self.rstick_y = 128
+        self.p1_rstick_y = 128  # Player 1 right stick Y (0-255)
+        self.p2_rstick_y = 128  # Player 2 right stick Y (0-255)
+        # Y/A buttons for paddle control (Y=up, A=down)
+        self.p1_btn_up = False  # Player 1 Y button
+        self.p1_btn_down = False  # Player 1 A button
+        self.p2_btn_up = False  # Player 2 Y button
+        self.p2_btn_down = False  # Player 2 A button
+
+        # Always try to init evdev for gamepad support
+        self.known_device_paths = set()  # Track known devices for hot-plug detection
+        self.last_device_check = 0  # Last time we checked for new devices
+        if HAS_EVDEV:
+            self._init_evdev()
+
+        # Also init terminal if requested (allows both gamepad + terminal)
         if use_terminal_input:
             self._init_terminal()
-        elif HAS_EVDEV:
-            self._init_evdev()
-        else:
-            print("evdev not available, trying terminal input")
+        elif not self.keyboards:
+            # No evdev devices found, fall back to terminal
+            print("No evdev devices found, falling back to terminal input")
             self._init_terminal()
 
     def _init_evdev(self):
-        """Initialize evdev keyboard input."""
+        """Initialize evdev keyboard/gamepad input."""
         devices = list_devices()
         print(f"Found {len(devices)} input devices")
 
-        # Try to find all suitable keyboard devices
+        # Try to find all suitable keyboard and gamepad devices
         for path in devices:
             try:
                 dev = InputDevice(path)
@@ -769,10 +875,24 @@ class InputHandler:
                 if ecodes.EV_KEY in caps:
                     keys = caps[ecodes.EV_KEY]
                     # Look for device with common keys (Enter, PageUp, Space, or arrow keys)
-                    has_keys = any(k in keys for k in [
+                    has_keyboard_keys = any(k in keys for k in [
                         ecodes.KEY_ENTER, ecodes.KEY_PAGEUP, ecodes.KEY_SPACE,
                         ecodes.KEY_UP, ecodes.KEY_DOWN, ecodes.KEY_A, ecodes.KEY_1
                     ])
+                    # Also check for gamepad buttons (BTN_A, BTN_B, etc.)
+                    has_gamepad_btns = any(k in keys for k in [
+                        ecodes.BTN_A, ecodes.BTN_B, ecodes.BTN_X, ecodes.BTN_Y,
+                        ecodes.BTN_SOUTH, ecodes.BTN_EAST, ecodes.BTN_NORTH, ecodes.BTN_WEST,
+                        ecodes.BTN_START, ecodes.BTN_SELECT, ecodes.BTN_GAMEPAD
+                    ])
+
+                    # Check if it has analog sticks (full gamepad)
+                    has_sticks = False
+                    if ecodes.EV_ABS in caps:
+                        abs_caps = [c[0] if isinstance(c, tuple) else c for c in caps[ecodes.EV_ABS]]
+                        has_sticks = ecodes.ABS_X in abs_caps and ecodes.ABS_Y in abs_caps
+
+                    has_keys = has_keyboard_keys or has_gamepad_btns
                     if has_keys:
                         print(f"Using input device: {dev.name} ({path})")
                         try:
@@ -780,9 +900,19 @@ class InputHandler:
                         except IOError as e:
                             print(f"  Could not grab device: {e}")
                         self.keyboards.append(dev)
+                        self.known_device_paths.add(path)
+
+                        # Track full gamepads separately for 2-player
+                        if has_gamepad_btns and has_sticks:
+                            self.gamepads.append(dev)
+                            print(f"  -> Gamepad #{len(self.gamepads)} for multiplayer")
+
             except Exception as e:
                 print(f"Error checking device {path}: {e}")
                 continue
+
+        if self.gamepads:
+            print(f"Found {len(self.gamepads)} gamepad(s) for 2-player Pong")
 
         if not self.keyboards:
             # No keyboard found, try terminal if available
@@ -802,13 +932,84 @@ class InputHandler:
             self.old_settings = termios.tcgetattr(sys.stdin)
             tty.setcbreak(sys.stdin.fileno())
 
+    def _check_new_devices(self):
+        """Check for newly connected controllers (hot-plug support)."""
+        if not HAS_EVDEV:
+            return
+
+        # Only check every 2 seconds
+        now = time.time()
+        if now - self.last_device_check < 2.0:
+            return
+        self.last_device_check = now
+
+        # Get current device list
+        current_devices = set(list_devices())
+
+        # Find new devices
+        new_paths = current_devices - self.known_device_paths
+
+        for path in new_paths:
+            try:
+                dev = InputDevice(path)
+                caps = dev.capabilities()
+                if ecodes.EV_KEY in caps:
+                    keys = caps[ecodes.EV_KEY]
+                    has_gamepad_btns = any(k in keys for k in [
+                        ecodes.BTN_A, ecodes.BTN_B, ecodes.BTN_X, ecodes.BTN_Y,
+                        ecodes.BTN_SOUTH, ecodes.BTN_EAST, ecodes.BTN_NORTH, ecodes.BTN_WEST,
+                        ecodes.BTN_START, ecodes.BTN_SELECT, ecodes.BTN_GAMEPAD
+                    ])
+
+                    has_sticks = False
+                    if ecodes.EV_ABS in caps:
+                        abs_caps = [c[0] if isinstance(c, tuple) else c for c in caps[ecodes.EV_ABS]]
+                        has_sticks = ecodes.ABS_X in abs_caps and ecodes.ABS_Y in abs_caps
+
+                    if has_gamepad_btns:
+                        print(f"New controller connected: {dev.name} ({path})")
+                        try:
+                            dev.grab()
+                        except IOError as e:
+                            print(f"  Could not grab device: {e}")
+                        self.keyboards.append(dev)
+                        self.known_device_paths.add(path)
+
+                        if has_gamepad_btns and has_sticks:
+                            self.gamepads.append(dev)
+                            print(f"  -> Gamepad #{len(self.gamepads)} for multiplayer")
+
+            except Exception as e:
+                pass  # Device might have disconnected already
+
+        # Also clean up disconnected devices
+        for kb in self.keyboards[:]:
+            try:
+                _ = kb.fd  # Check if device is still valid
+            except (OSError, IOError):
+                print(f"Controller disconnected: {kb.path}")
+                self.keyboards.remove(kb)
+                if kb in self.gamepads:
+                    self.gamepads.remove(kb)
+                if kb.path in self.known_device_paths:
+                    self.known_device_paths.discard(kb.path)
+
     def poll(self):
         """Poll for input events. Returns (jump_triggered, duck_held, quit_requested)."""
+        # Check for newly connected controllers
+        self._check_new_devices()
+
         jump_triggered = False
         duck_held = False
+        self.select_pong = False  # Reset each frame
+        self.select_snake = False
+        self.select_draw = False
+        self.back_to_menu = False
+        # Note: stick values are NOT reset here - they persist until stick position changes
+        # This allows continuous movement while holding the stick
 
+        # Check terminal input if enabled
         if self.use_terminal_input:
-            # Check stdin for input
             r, _, _ = select([sys.stdin], [], [], 0)
             if r:
                 char = sys.stdin.read(1)
@@ -816,6 +1017,16 @@ class InputHandler:
                     jump_triggered = True
                 elif char == ' ':
                     duck_held = True
+                elif char == 'b' or char == 'B':
+                    self.select_pong = True
+                elif char == 'w' or char == 'W':
+                    self.p1_up = True
+                elif char == 's' or char == 'S':
+                    self.p1_down = True
+                elif char == 'i' or char == 'I':
+                    self.p2_up = True
+                elif char == 'k' or char == 'K':
+                    self.p2_down = True
                 elif char == '\x1b':  # Escape sequence
                     # Read rest of escape sequence
                     seq = ''
@@ -828,34 +1039,187 @@ class InputHandler:
                                 break
                         else:
                             break
-                    # PageUp or any escape sequence = jump
-                    jump_triggered = True
-        elif self.keyboards:
-            # Check all evdev keyboards
+                    # Check for arrow keys
+                    if seq == '[A':  # Up
+                        self.p1_up = True
+                    elif seq == '[B':  # Down
+                        self.p1_down = True
+                    else:
+                        jump_triggered = True
+
+        # Also check evdev devices (gamepads, keyboards)
+        if self.keyboards:
             r, _, _ = select(self.keyboards, [], [], 0)
             for kb in r:
                 try:
+                    # Determine which player this controller is (for 2-player pong)
+                    # First gamepad = P1, second gamepad = P2
+                    is_p1_controller = (len(self.gamepads) < 2 or
+                                        kb not in self.gamepads or
+                                        self.gamepads.index(kb) == 0)
+                    is_p2_controller = (len(self.gamepads) >= 2 and
+                                        kb in self.gamepads and
+                                        self.gamepads.index(kb) == 1)
+
                     for event in kb.read():
                         if event.type == ecodes.EV_KEY:
                             key_event = categorize(event)
-                            # Jump keys: Enter, PageUp, Up arrow
-                            if key_event.scancode in (ecodes.KEY_ENTER, ecodes.KEY_PAGEUP, ecodes.KEY_UP):
-                                if key_event.keystate == key_event.key_down:
+                            is_down = key_event.keystate == key_event.key_down
+                            is_up = key_event.keystate == key_event.key_up
+
+                            # Jump/Select Dino: A button (also paddle DOWN in pong)
+                            if key_event.scancode in (ecodes.KEY_ENTER, ecodes.BTN_A, ecodes.BTN_SOUTH):
+                                if is_down:
                                     jump_triggered = True
-                            # Duck keys: Space, PageDown, Down arrow
-                            elif key_event.scancode in (ecodes.KEY_SPACE, ecodes.KEY_PAGEDOWN, ecodes.KEY_DOWN):
-                                if key_event.keystate == key_event.key_down:
+                                # Track A button per player for paddle control
+                                if is_p1_controller:
+                                    self.p1_btn_down = is_down
+                                elif is_p2_controller:
+                                    self.p2_btn_down = is_down
+
+                            # Select Pong / Duck: B button
+                            elif key_event.scancode in (ecodes.BTN_B, ecodes.BTN_EAST):
+                                if is_down:
+                                    print(f"DEBUG: BTN_B detected! scancode={key_event.scancode}")
+                                    self.select_pong = True
                                     self.duck_pressed = True
-                                elif key_event.keystate == key_event.key_up:
+                                elif is_up:
                                     self.duck_pressed = False
+
+                            # D-pad Up/Down - route to correct player
+                            elif key_event.scancode in (ecodes.KEY_UP, ecodes.KEY_PAGEUP):
+                                if is_p1_controller:
+                                    self.p1_up = is_down
+                                elif is_p2_controller:
+                                    self.p2_up = is_down
+                                if is_down:
+                                    jump_triggered = True
+
+                            elif key_event.scancode in (ecodes.KEY_DOWN, ecodes.KEY_PAGEDOWN, ecodes.KEY_SPACE):
+                                if is_p1_controller:
+                                    self.p1_down = is_down
+                                elif is_p2_controller:
+                                    self.p2_down = is_down
+                                if is_down:
+                                    self.duck_pressed = True
+                                elif is_up:
+                                    self.duck_pressed = False
+
+                            # Y button - select snake / paddle UP
+                            elif key_event.scancode in (ecodes.BTN_Y, ecodes.BTN_WEST):
+                                if is_down:
+                                    self.select_snake = True
+                                # Track Y button per player for paddle control
+                                if is_p1_controller:
+                                    self.p1_btn_up = is_down
+                                elif is_p2_controller:
+                                    self.p2_btn_up = is_down
+
+                            # X button - back to menu / P2 down (single controller)
+                            elif key_event.scancode in (ecodes.BTN_X, ecodes.BTN_NORTH):
+                                if is_down:
+                                    self.back_to_menu = True
+                                self.p2_down = is_down
+
+                            # Left trigger/bumper - draw button AND start draw game
+                            elif key_event.scancode == ecodes.BTN_TL:
+                                self.draw_button = is_down
+                                if is_down:
+                                    self.select_draw = True  # Also starts Draw from menu
+
+                            # Start = draw game, Select = start dino
+                            # BTN_START is 0x13b (315), BTN_MODE is 0x13c (316)
+                            elif key_event.scancode in (ecodes.BTN_START, ecodes.BTN_MODE, 315, 316):
+                                if is_down:
+                                    self.select_draw = True
+                                    print(f"DEBUG: Start/Draw button pressed: {key_event.scancode}")
+                            elif key_event.scancode in (ecodes.BTN_SELECT, 314):
+                                if is_down:
+                                    jump_triggered = True
+
                             elif key_event.scancode == ecodes.KEY_ESC:
-                                if key_event.keystate == key_event.key_down:
+                                if is_down:
                                     self.quit_requested = True
+
+                        # Handle analog stick / D-pad for pong and draw
+                        elif event.type == ecodes.EV_ABS:
+                            # HAT0X for D-pad left/right
+                            if event.code == ecodes.ABS_HAT0X:
+                                self.stick_x = -1 if event.value < 0 else (1 if event.value > 0 else 0)
+                            # HAT0Y for D-pad up/down
+                            elif event.code == ecodes.ABS_HAT0Y:
+                                self.stick_y = -1 if event.value < 0 else (1 if event.value > 0 else 0)
+                                if is_p1_controller:
+                                    self.p1_up = event.value < 0
+                                    self.p1_down = event.value > 0
+                                elif is_p2_controller:
+                                    self.p2_up = event.value < 0
+                                    self.p2_down = event.value > 0
+                            # Left stick X (wider deadzone 90-166)
+                            elif event.code == ecodes.ABS_X:
+                                if event.value < 90:
+                                    self.stick_x = -1
+                                elif event.value > 166:
+                                    self.stick_x = 1
+                                else:
+                                    self.stick_x = 0
+                            # Left stick Y
+                            elif event.code == ecodes.ABS_Y:
+                                if event.value < 100:
+                                    self.stick_y = -1
+                                    if is_p1_controller:
+                                        self.p1_up = True
+                                        self.p1_down = False
+                                    elif is_p2_controller:
+                                        self.p2_up = True
+                                        self.p2_down = False
+                                elif event.value > 156:
+                                    self.stick_y = 1
+                                    if is_p1_controller:
+                                        self.p1_down = True
+                                        self.p1_up = False
+                                    elif is_p2_controller:
+                                        self.p2_down = True
+                                        self.p2_up = False
+                                else:
+                                    # Stick centered - reset movement
+                                    self.stick_y = 0
+                                    if is_p1_controller:
+                                        self.p1_up = False
+                                        self.p1_down = False
+                                    elif is_p2_controller:
+                                        self.p2_up = False
+                                        self.p2_down = False
+                            # Right stick X (ABS_Z on some controllers, ABS_RX on others)
+                            # Store actual analog value (0-255) for smooth control
+                            elif event.code in (ecodes.ABS_RX, ecodes.ABS_Z):
+                                self.rstick_x = event.value
+                            # Right stick Y (ABS_RZ on some controllers, ABS_RY on others)
+                            # Store actual analog value (0-255) for smooth proportional control
+                            elif event.code in (ecodes.ABS_RY, ecodes.ABS_RZ):
+                                self.rstick_y = event.value
+                                if is_p1_controller:
+                                    self.p1_rstick_y = event.value
+                                elif is_p2_controller:
+                                    self.p2_rstick_y = event.value
+
                 except Exception:
                     pass  # Device may have been disconnected
-            duck_held = self.duck_pressed
+            duck_held = duck_held or self.duck_pressed
 
         return jump_triggered, duck_held, self.quit_requested
+
+    def get_pong_input(self):
+        """Get pong-specific input state."""
+        return self.p1_up, self.p1_down, self.p2_up, self.p2_down
+
+    def reset_pong_input(self):
+        """Reset pong input for next frame (for terminal mode)."""
+        if self.use_terminal_input:
+            self.p1_up = False
+            self.p1_down = False
+            self.p2_up = False
+            self.p2_down = False
 
     def cleanup(self):
         """Clean up input resources."""
@@ -873,7 +1237,7 @@ class InputHandler:
 
 
 class Obstacle:
-    """Represents an obstacle (cactus or bird)."""
+    """Represents an obstacle (cactus, bird, ufo, etc.)."""
 
     CACTUS_TYPES = [
         ('cactus_small', CACTUS_SMALL, GROUND_Y - 5),
@@ -891,16 +1255,43 @@ class Obstacle:
         ('bird_jump', BIRD_1, GROUND_Y - 4),
     ]
 
-    def __init__(self, x, include_birds=True, duck_enabled=True):
+    # New obstacles for higher scores
+    ROBOT_TYPES = [
+        ('robot', ROBOT, GROUND_Y - 5),
+    ]
+
+    UFO_TYPES = [
+        ('ufo_low', UFO_1, GROUND_Y - 6),
+        ('ufo_high', UFO_1, GROUND_Y - 10),
+    ]
+
+    METEOR_TYPES = [
+        ('meteor', METEOR, GROUND_Y - 5),
+        ('comet', COMET, GROUND_Y - 6),
+    ]
+
+    def __init__(self, x, include_birds=True, duck_enabled=True, score=0):
         self.x = x
+        self.score = score
+
+        # Build available types based on score
+        types = list(self.CACTUS_TYPES)
+
         if include_birds:
             if duck_enabled:
-                types = self.CACTUS_TYPES + self.BIRD_TYPES
+                types.extend(self.BIRD_TYPES)
             else:
-                # No-duck mode: only low birds that can be jumped over
-                types = self.CACTUS_TYPES + self.BIRD_JUMP_TYPES
-        else:
-            types = self.CACTUS_TYPES
+                types.extend(self.BIRD_JUMP_TYPES)
+
+        # Add robots at 1500+ points
+        if score >= 1500:
+            types.extend(self.ROBOT_TYPES)
+
+        # Add UFOs and meteors at 2000+ points
+        if score >= 2000:
+            types.extend(self.UFO_TYPES)
+            types.extend(self.METEOR_TYPES)
+
         obstacle_type = random.choice(types)
         self.name = obstacle_type[0]
         self.sprite = obstacle_type[1]
@@ -918,6 +1309,8 @@ class Obstacle:
         """Get current sprite (for animation)."""
         if 'bird' in self.name:
             return BIRD_1 if (self.frame // 6) % 2 == 0 else BIRD_2
+        if 'ufo' in self.name:
+            return UFO_1 if (self.frame // 4) % 2 == 0 else UFO_2
         return self.sprite
 
     def get_hitbox(self):
@@ -998,6 +1391,432 @@ class Dinosaur:
         return (self.x + 1, int(self.y) + 1, self.width - 2, self.height - 2)
 
 
+class PongGame:
+    """Multiplayer Pong game for BUSE display."""
+
+    PADDLE_HEIGHT = 6  # Taller paddle for easier play
+    PADDLE_WIDTH = 2
+    BALL_SPEED_INITIAL = 0.4  # Start slow
+    BALL_SPEED_MAX = 1.5
+    WINNING_SCORE = 5
+
+    # Paddle positions - moderate distance apart
+    P1_X = 15  # Left paddle
+    P2_X = WIDTH - 17  # Right paddle (x=111 for 128-wide screen)
+    PLAY_WIDTH = P2_X - P1_X  # Playable area width
+
+    def __init__(self, display, sound):
+        self.display = display
+        self.sound = sound
+        self.reset()
+
+    def reset(self):
+        """Reset game state."""
+        self.ball_x = WIDTH // 2
+        self.ball_y = HEIGHT // 2
+        self.ball_dx = 1.0
+        self.ball_dy = 0.5
+        self.ball_speed = self.BALL_SPEED_INITIAL
+
+        # Paddles - player 1 on left, player 2 on right
+        self.p1_y = HEIGHT // 2 - self.PADDLE_HEIGHT // 2
+        self.p2_y = HEIGHT // 2 - self.PADDLE_HEIGHT // 2
+
+        # Scores
+        self.p1_score = 0
+        self.p2_score = 0
+
+        self.state = 'playing'  # playing, p1_wins, p2_wins
+        self.frame = 0
+
+    def update(self, p1_stick, p2_stick, p1_btn_up=False, p1_btn_down=False, p2_btn_up=False, p2_btn_down=False):
+        """Update pong game state with analog stick values (0-255, 128=center)."""
+        if self.state != 'playing':
+            self.frame += 1
+            return
+
+        self.frame += 1
+
+        # Calculate paddle velocities from analog stick values
+        # Deadzone of 20 around center (108-148)
+        # Max speed of 3 pixels per frame at full deflection
+        def stick_to_velocity(stick_val):
+            centered = stick_val - 128  # -128 to +127
+            if abs(centered) < 20:  # Deadzone
+                return 0
+            # Scale to max speed of 3
+            return (centered / 128.0) * 3.0
+
+        p1_vel = stick_to_velocity(p1_stick)
+        p2_vel = stick_to_velocity(p2_stick)
+
+        # Button overrides (Y=up, A=down)
+        if p1_btn_up:
+            p1_vel = -2
+        elif p1_btn_down:
+            p1_vel = 2
+        if p2_btn_up:
+            p2_vel = -2
+        elif p2_btn_down:
+            p2_vel = 2
+
+        # Move P1 paddle
+        self.p1_y += p1_vel
+        self.p1_y = max(0, min(HEIGHT - 1 - self.PADDLE_HEIGHT, self.p1_y))
+
+        # Move P2 paddle
+        self.p2_y += p2_vel
+        self.p2_y = max(0, min(HEIGHT - 1 - self.PADDLE_HEIGHT, self.p2_y))
+
+        # Move ball
+        self.ball_x += self.ball_dx * self.ball_speed
+        self.ball_y += self.ball_dy * self.ball_speed
+
+        # Ball collision with top/bottom
+        if self.ball_y <= 0:
+            self.ball_y = 0
+            self.ball_dy = abs(self.ball_dy)
+            self.sound.play("bounce")
+        elif self.ball_y >= HEIGHT - 1:
+            self.ball_y = HEIGHT - 1
+            self.ball_dy = -abs(self.ball_dy)
+            self.sound.play("bounce")
+
+        # Ball collision with paddles
+        # Left paddle (P1)
+        if (self.ball_x <= self.P1_X + self.PADDLE_WIDTH and self.ball_dx < 0 and
+            self.p1_y <= self.ball_y < self.p1_y + self.PADDLE_HEIGHT):
+            self.ball_dx = abs(self.ball_dx)
+            # Add angle based on where ball hit paddle
+            hit_pos = (self.ball_y - self.p1_y) / self.PADDLE_HEIGHT
+            self.ball_dy = (hit_pos - 0.5) * 1.5
+            self.ball_speed = min(self.ball_speed + 0.1, self.BALL_SPEED_MAX)
+            self.sound.play("jump")
+
+        # Right paddle (P2)
+        if (self.ball_x >= self.P2_X - 1 and self.ball_dx > 0 and
+            self.p2_y <= self.ball_y < self.p2_y + self.PADDLE_HEIGHT):
+            self.ball_dx = -abs(self.ball_dx)
+            hit_pos = (self.ball_y - self.p2_y) / self.PADDLE_HEIGHT
+            self.ball_dy = (hit_pos - 0.5) * 1.5
+            self.ball_speed = min(self.ball_speed + 0.1, self.BALL_SPEED_MAX)
+            self.sound.play("jump")
+
+        # Scoring - ball passes paddle
+        if self.ball_x < self.P1_X - 5:
+            self.p2_score += 1
+            self.sound.play("gameover")
+            self._reset_ball(-1)
+        elif self.ball_x > self.P2_X + 5:
+            self.p1_score += 1
+            self.sound.play("gameover")
+            self._reset_ball(1)
+
+        # Check for winner
+        if self.p1_score >= self.WINNING_SCORE:
+            self.state = 'p1_wins'
+            self.sound.speak("Player 1 wins!", speed=150, pitch=60)
+        elif self.p2_score >= self.WINNING_SCORE:
+            self.state = 'p2_wins'
+            self.sound.speak("Player 2 wins!", speed=150, pitch=60)
+
+    def _reset_ball(self, direction):
+        """Reset ball after scoring."""
+        self.ball_x = WIDTH // 2
+        self.ball_y = HEIGHT // 2
+        self.ball_dx = direction
+        self.ball_dy = random.uniform(-0.5, 0.5)
+        self.ball_speed = self.BALL_SPEED_INITIAL
+
+    def render(self):
+        """Render pong game."""
+        self.display.clear()
+
+        if self.state == 'playing':
+            # Draw center line
+            for y in range(0, HEIGHT, 2):
+                self.display.set_pixel(WIDTH // 2, y)
+
+            # Draw play area boundaries
+            for y in range(HEIGHT):
+                self.display.set_pixel(self.P1_X - 3, y)
+                self.display.set_pixel(self.P2_X + 3, y)
+
+            # Draw paddles
+            for i in range(self.PADDLE_HEIGHT):
+                for w in range(self.PADDLE_WIDTH):
+                    self.display.set_pixel(self.P1_X + w, int(self.p1_y) + i)
+                    self.display.set_pixel(self.P2_X + w, int(self.p2_y) + i)
+
+            # Draw ball (2x2 for visibility)
+            bx, by = int(self.ball_x), int(self.ball_y)
+            self.display.set_pixel(bx, by)
+            self.display.set_pixel(bx + 1, by)
+            if by + 1 < HEIGHT:
+                self.display.set_pixel(bx, by + 1)
+                self.display.set_pixel(bx + 1, by + 1)
+
+            # Draw scores on sides
+            self.display.draw_text(5, 7, str(self.p1_score))
+            self.display.draw_text(WIDTH - 10, 7, str(self.p2_score))
+
+        else:
+            # Game over screen
+            if self.state == 'p1_wins':
+                self.display.draw_centered_text(3, "PLAYER 1")
+                self.display.draw_centered_text(9, "WINS!")
+            else:
+                self.display.draw_centered_text(3, "PLAYER 2")
+                self.display.draw_centered_text(9, "WINS!")
+
+            score_str = f"{self.p1_score} - {self.p2_score}"
+            self.display.draw_centered_text(15, score_str)
+
+
+class SnakeGame:
+    """Classic Snake game for BUSE display."""
+
+    def __init__(self, display, sound):
+        self.display = display
+        self.sound = sound
+        self.reset()
+
+    def reset(self):
+        """Reset game state."""
+        # Snake starts in center, moving right, with 5 segments
+        start_x = WIDTH // 2
+        start_y = HEIGHT // 2
+        self.snake = [(start_x - i, start_y) for i in range(5)]  # 5 segments
+        self.direction = (1, 0)  # (dx, dy)
+        self.next_direction = (1, 0)
+        self.food = self._spawn_food()
+        self.score = 0
+        self.state = 'playing'  # playing, gameover
+        self.frame = 0
+        self.move_timer = 0
+        self.move_delay = 6  # Frames between moves (slower = easier)
+
+    def _spawn_food(self):
+        """Spawn food at random location not on snake."""
+        while True:
+            x = random.randint(1, WIDTH - 2)
+            y = random.randint(1, HEIGHT - 2)
+            if (x, y) not in self.snake:
+                return (x, y)
+
+    def update(self, up, down, left, right):
+        """Update snake game state."""
+        if self.state != 'playing':
+            self.frame += 1
+            return
+
+        self.frame += 1
+
+        # Update direction (can't reverse)
+        if up and self.direction != (0, 1):
+            self.next_direction = (0, -1)
+        elif down and self.direction != (0, -1):
+            self.next_direction = (0, 1)
+        elif left and self.direction != (1, 0):
+            self.next_direction = (-1, 0)
+        elif right and self.direction != (-1, 0):
+            self.next_direction = (1, 0)
+
+        # Move snake at fixed intervals
+        self.move_timer += 1
+        if self.move_timer < self.move_delay:
+            return
+        self.move_timer = 0
+
+        self.direction = self.next_direction
+
+        # Calculate new head position
+        head_x, head_y = self.snake[0]
+        new_head = (head_x + self.direction[0], head_y + self.direction[1])
+
+        # Check wall collision
+        if new_head[0] < 0 or new_head[0] >= WIDTH or new_head[1] < 0 or new_head[1] >= HEIGHT:
+            self.state = 'gameover'
+            self.sound.play("gameover")
+            self.sound.speak(f"Snake died! Score {self.score}", speed=140, pitch=50)
+            return
+
+        # Check self collision
+        if new_head in self.snake:
+            self.state = 'gameover'
+            self.sound.play("gameover")
+            self.sound.speak(f"Snake died! Score {self.score}", speed=140, pitch=50)
+            return
+
+        # Move snake
+        self.snake.insert(0, new_head)
+
+        # Check food collision
+        if new_head == self.food:
+            self.score += 10
+            self.food = self._spawn_food()
+            self.sound.play("score")
+            # Speed up slightly
+            if self.move_delay > 2:
+                self.move_delay = max(2, self.move_delay - 0.2)
+        else:
+            self.snake.pop()  # Remove tail if no food eaten
+
+    def render(self):
+        """Render snake game."""
+        self.display.clear()
+
+        if self.state == 'playing':
+            # Draw border
+            for x in range(WIDTH):
+                self.display.set_pixel(x, 0)
+                self.display.set_pixel(x, HEIGHT - 1)
+            for y in range(HEIGHT):
+                self.display.set_pixel(0, y)
+                self.display.set_pixel(WIDTH - 1, y)
+
+            # Draw snake
+            for i, (x, y) in enumerate(self.snake):
+                self.display.set_pixel(x, y)
+                # Make head bigger
+                if i == 0:
+                    if x + 1 < WIDTH:
+                        self.display.set_pixel(x + 1, y)
+                    if y + 1 < HEIGHT:
+                        self.display.set_pixel(x, y + 1)
+
+            # Draw food (blinking)
+            if (self.frame // 4) % 2 == 0:
+                fx, fy = self.food
+                self.display.set_pixel(fx, fy)
+                self.display.set_pixel(fx + 1, fy)
+                self.display.set_pixel(fx, fy + 1)
+                self.display.set_pixel(fx + 1, fy + 1)
+
+            # Draw score
+            self.display.draw_text(WIDTH - 20, 2, str(self.score))
+
+        else:
+            # Game over
+            self.display.draw_centered_text(3, "GAME OVER")
+            self.display.draw_centered_text(9, f"SCORE {self.score}")
+            if (self.frame // 30) % 2 == 0:
+                self.display.draw_centered_text(15, "PRESS A")
+
+
+class DrawGame:
+    """Simple drawing game with joystick cursor."""
+
+    def __init__(self, display, sound):
+        self.display = display
+        self.sound = sound
+        self.reset()
+
+    def reset(self):
+        """Reset game state."""
+        self.cursor_x = WIDTH // 2
+        self.cursor_y = HEIGHT // 2
+        self.vel_x = 0.0  # Current smoothed velocity
+        self.vel_y = 0.0
+        self.canvas = set()  # Set of (x, y) pixels that are drawn
+        self.history = []  # History for undo (list of pixels added)
+        self.frame = 0
+        self.has_drawn = False  # True once user starts drawing
+        self.last_action_frame = 0  # Frame of last draw/undo action
+
+    def update(self, stick_x, stick_y, draw_button):
+        """Update draw game state.
+
+        stick_x, stick_y: analog values 0-255 (128=center)
+        draw_button: True if drawing
+        """
+        self.frame += 1
+
+        # Convert analog to target velocity with deadzone
+        def analog_to_target(val):
+            centered = val - 128
+            if abs(centered) < 40:  # Large deadzone for precision
+                return 0
+            return centered / 300.0  # Very slow for easy drawing
+
+        target_x = analog_to_target(stick_x)
+        target_y = analog_to_target(stick_y)
+
+        # Smooth velocity interpolation (easing)
+        smooth = 0.15  # Lower = smoother but slower response
+        self.vel_x += (target_x - self.vel_x) * smooth
+        self.vel_y += (target_y - self.vel_y) * smooth
+
+        # Stop completely when nearly still
+        if abs(self.vel_x) < 0.001:
+            self.vel_x = 0
+        if abs(self.vel_y) < 0.001:
+            self.vel_y = 0
+
+        # Move cursor with smoothed velocity
+        self.cursor_x += self.vel_x
+        self.cursor_y += self.vel_y
+
+        # Clamp to screen
+        self.cursor_x = max(0, min(WIDTH - 1, self.cursor_x))
+        self.cursor_y = max(0, min(HEIGHT - 1, self.cursor_y))
+
+        # Draw if button held
+        if draw_button:
+            pixel = (int(self.cursor_x), int(self.cursor_y))
+            if pixel not in self.canvas:
+                self.canvas.add(pixel)
+                self.history.append(pixel)  # Track for undo
+                self.has_drawn = True
+                self.last_action_frame = self.frame
+
+    def undo(self):
+        """Undo last drawn pixel."""
+        if self.history:
+            pixel = self.history.pop()
+            self.canvas.discard(pixel)
+            self.sound.play("jump")
+            self.last_action_frame = self.frame
+
+    def is_idle(self):
+        """Check if idle for 15 seconds (900 frames at 60fps)."""
+        return self.frame - self.last_action_frame > 900
+
+    def clear_canvas(self):
+        """Clear the drawing."""
+        self.canvas.clear()
+        self.sound.play("score")
+
+    def render(self):
+        """Render draw game."""
+        self.display.clear()
+
+        # Draw canvas pixels
+        for x, y in self.canvas:
+            self.display.set_pixel(x, y)
+
+        # Get integer cursor position
+        cx, cy = int(self.cursor_x), int(self.cursor_y)
+
+        # Draw cursor (blinking)
+        if (self.frame // 4) % 2 == 0:
+            self.display.set_pixel(cx, cy)
+
+        # Draw small crosshair around cursor
+        if cx > 0:
+            self.display.set_pixel(cx - 1, cy)
+        if cx < WIDTH - 1:
+            self.display.set_pixel(cx + 1, cy)
+        if cy > 0:
+            self.display.set_pixel(cx, cy - 1)
+        if cy < HEIGHT - 1:
+            self.display.set_pixel(cx, cy + 1)
+
+        # Only show instructions before user starts drawing
+        if not self.has_drawn:
+            self.display.draw_text(2, 1, "LB:DRAW B:UNDO A:CLR")
+
+
 class Game:
     """Main game controller."""
 
@@ -1005,12 +1824,18 @@ class Game:
     MAX_SPEED = 2.4  # Tuned for 60fps
     HIGH_SCORE_FILE = "/var/lib/dino_highscore"
 
+    # Milestone thresholds
+    VOLCANO_MILESTONE = 500
+    INVERT_MILESTONES = [1000, 1500]
+    ROBOT_MILESTONE = 1500
+    UFO_MILESTONE = 2000
+
     def __init__(self, display, input_handler, duck_enabled=True, sound_enabled=True):
         self.display = display
         self.input = input_handler
         self.duck_enabled = duck_enabled
         self.sound = Sound(enabled=sound_enabled)
-        self.state = 'start'  # start, playing, gameover
+        self.state = 'start'  # start, playing, gameover, volcano, paused, pong
         self.score = 0
         self.high_score = self._load_high_score()
         self.speed = self.INITIAL_SPEED
@@ -1019,10 +1844,38 @@ class Game:
         self.next_obstacle_time = 0
         self.animation_frame = 0
         self.ground_offset = 0.0
+
+        # Lives system
+        self.lives = MAX_LIVES
+        self.invincible_frames = 0  # Brief invincibility after hit
+
+        # Milestone tracking
+        self.milestones_triggered = set()
+        self.invert_screen = False
+        self.invert_end_frame = 0
+
+        # Volcano animation state
+        self.volcano_frame = 0
+
+        # Controller state
+        self.controller_connected = True
+        self.last_controller_check = 0
+
+        # Mini games
+        self.pong = PongGame(display, self.sound)
+        self.snake = SnakeGame(display, self.sound)
+        self.draw = DrawGame(display, self.sound)
+
         # Randomized scene order for start screen animations
         self.scene_order = list(range(16))
         random.shuffle(self.scene_order)
         self.current_scene_idx = -1  # Start at -1 so first scene triggers speech
+
+        # Smooth animation state for fluid eye movements
+        self.smooth_pupil_x = 0.0  # Current smooth pupil position
+        self.smooth_pupil_y = 0.0
+        self.smooth_eye_open_l = 1.0  # 0=closed, 0.5=half, 1=open, 1.5=wide
+        self.smooth_eye_open_r = 1.0
         self.last_sound_frame = -1  # Track last sound to avoid repeats
 
     def _load_high_score(self):
@@ -1050,12 +1903,92 @@ class Game:
         self.ground_offset = 0.0
         self.next_obstacle_time = time.time() + random.uniform(1.5, 2.5)
 
+        # Reset lives and milestones
+        self.lives = MAX_LIVES
+        self.invincible_frames = 0
+        self.milestones_triggered = set()
+        self.invert_screen = False
+        self.invert_end_frame = 0
+
     def check_collision(self, box1, box2):
         """Check if two hitboxes collide."""
         x1, y1, w1, h1 = box1
         x2, y2, w2, h2 = box2
         return (x1 < x2 + w2 and x1 + w1 > x2 and
                 y1 < y2 + h2 and y1 + h1 > y2)
+
+    def _check_controller(self):
+        """Check if controller is still connected."""
+        if not HAS_EVDEV:
+            return True
+
+        # Only check periodically (every 60 frames / 1 second)
+        now = time.time()
+        if now - self.last_controller_check < 1.0:
+            return self.controller_connected
+
+        self.last_controller_check = now
+
+        # Check if we have any working gamepad
+        has_gamepad = False
+        for kb in self.input.keyboards[:]:  # Copy list to allow modification
+            try:
+                # Try to read device info to check if still connected
+                _ = kb.name
+                caps = kb.capabilities()
+                if ecodes.EV_KEY in caps:
+                    keys = caps[ecodes.EV_KEY]
+                    if any(k in keys for k in [ecodes.BTN_A, ecodes.BTN_GAMEPAD, ecodes.BTN_SOUTH]):
+                        has_gamepad = True
+            except (OSError, IOError):
+                # Device disconnected
+                self.input.keyboards.remove(kb)
+
+        self.controller_connected = has_gamepad or self.input.use_terminal_input
+        return self.controller_connected
+
+    def _check_milestones(self):
+        """Check and trigger milestone events."""
+        # Volcano eruption at 500 points
+        if self.score >= self.VOLCANO_MILESTONE and 'volcano' not in self.milestones_triggered:
+            self.milestones_triggered.add('volcano')
+            self.state = 'volcano'
+            self.volcano_frame = 0
+            self.sound.play("surprise")
+            self.sound.speak("Volcano eruption!", speed=140, pitch=50)
+
+        # Screen invert at 1000 and 1500 points
+        for milestone in self.INVERT_MILESTONES:
+            key = f'invert_{milestone}'
+            if self.score >= milestone and key not in self.milestones_triggered:
+                self.milestones_triggered.add(key)
+                self.invert_screen = True
+                self.invert_end_frame = self.animation_frame + 300  # 5 seconds
+                self.sound.play("hypno")
+                self.sound.speak("Inverted!", speed=160, pitch=70)
+
+        # Announce new enemies at milestones
+        if self.score >= self.ROBOT_MILESTONE and 'robot_announce' not in self.milestones_triggered:
+            self.milestones_triggered.add('robot_announce')
+            self.sound.speak("Robots incoming!", speed=150, pitch=60)
+
+        if self.score >= self.UFO_MILESTONE and 'ufo_announce' not in self.milestones_triggered:
+            self.milestones_triggered.add('ufo_announce')
+            self.sound.speak("UFOs detected!", speed=150, pitch=60)
+
+    def _get_difficulty_params(self):
+        """Get difficulty parameters based on score."""
+        # Progressive difficulty tiers
+        if self.score >= 3000:
+            return {'spawn_min': 0.6, 'spawn_max': 1.0, 'speed_mult': 1.4}
+        elif self.score >= 2000:
+            return {'spawn_min': 0.7, 'spawn_max': 1.2, 'speed_mult': 1.3}
+        elif self.score >= 1000:
+            return {'spawn_min': 0.8, 'spawn_max': 1.5, 'speed_mult': 1.2}
+        elif self.score >= 500:
+            return {'spawn_min': 1.0, 'spawn_max': 1.8, 'speed_mult': 1.1}
+        else:
+            return {'spawn_min': 1.2, 'spawn_max': 2.5, 'speed_mult': 1.0}
 
     def update(self):
         """Update game logic."""
@@ -1064,15 +1997,74 @@ class Game:
         if quit_req:
             return False
 
+        # Check controller connection
+        if not self._check_controller():
+            if self.state == 'playing':
+                self.state = 'paused'
+                self.animation_frame = 0
+            # Still allow terminal input if available
+            if not self.input.use_terminal_input:
+                return True
+
         if self.state == 'start':
             self.animation_frame += 1
-            if jump:
+            # Game selection: A=Dino, B=Pong, Y=Snake, Start=Draw
+            if self.input.select_pong:
+                self.state = 'pong'
+                self.pong.reset()
+                self.sound.play("start")
+                self.sound.speak("Pong!", speed=180, pitch=80)
+            elif self.input.select_snake:
+                self.state = 'snake'
+                self.snake.reset()
+                self.sound.play("start")
+                self.sound.speak("Snake!", speed=180, pitch=80)
+            elif self.input.select_draw:
+                self.state = 'draw'
+                self.draw.reset()
+                self.sound.play("start")
+                self.sound.speak("Draw!", speed=180, pitch=80)
+            elif jump:
                 self.state = 'playing'
                 self.reset()
                 self.sound.play("start")
                 self.sound.speak("Go!", speed=180, pitch=80)
 
+        elif self.state == 'paused':
+            # Controller disconnected - wait for reconnection
+            self.animation_frame += 1
+            if self._check_controller():
+                self.state = 'playing'
+                self.controller_connected = True
+            elif jump:  # Allow terminal input to resume
+                self.state = 'playing'
+
+        elif self.state == 'volcano':
+            # Volcano eruption animation
+            self.volcano_frame += 1
+            if self.volcano_frame >= 180:  # 3 seconds at 60fps
+                self.state = 'playing'
+                self.volcano_frame = 0
+                self.sound.speak("New enemies incoming!", speed=150, pitch=60)
+
         elif self.state == 'playing':
+            # X button exits to menu
+            if self.input.back_to_menu:
+                self.state = 'start'
+                self.animation_frame = 0
+                return True
+
+            # Check for milestone events
+            self._check_milestones()
+
+            # Handle invert screen timer
+            if self.invert_screen and self.animation_frame >= self.invert_end_frame:
+                self.invert_screen = False
+
+            # Decrease invincibility timer
+            if self.invincible_frames > 0:
+                self.invincible_frames -= 1
+
             if jump and self.dino.on_ground and not self.dino.ducking:
                 self.sound.play("jump")
             if jump:
@@ -1081,14 +2073,14 @@ class Game:
             self.dino.duck(duck)
             self.dino.update()
 
-            # Spawn obstacles - spawn faster as score increases
+            # Get difficulty parameters
+            diff = self._get_difficulty_params()
+
+            # Spawn obstacles with proper spacing based on difficulty
             if time.time() >= self.next_obstacle_time:
-                self.obstacles.append(Obstacle(WIDTH, include_birds=True, duck_enabled=self.duck_enabled))
-                # Reduce spawn time as score increases (min 0.8s, max based on score)
-                difficulty = min(self.score / 500, 1.0)  # 0 to 1 over 500 points
-                spawn_min = OBSTACLE_SPAWN_MIN - difficulty * 0.7  # 1.5 -> 0.8
-                spawn_max = OBSTACLE_SPAWN_MAX - difficulty * 1.5  # 3.0 -> 1.5
-                self.next_obstacle_time = time.time() + random.uniform(spawn_min, spawn_max)
+                self.obstacles.append(Obstacle(WIDTH, include_birds=True,
+                                               duck_enabled=self.duck_enabled, score=self.score))
+                self.next_obstacle_time = time.time() + random.uniform(diff['spawn_min'], diff['spawn_max'])
 
             # Update obstacles
             for obs in self.obstacles:
@@ -1110,20 +2102,31 @@ class Game:
                         self.sound.play("score")
             self.obstacles = new_obstacles
 
-            # Check collisions
-            dino_box = self.dino.get_hitbox()
-            for obs in self.obstacles:
-                if self.check_collision(dino_box, obs.get_hitbox()):
-                    self.state = 'gameover'
-                    self.animation_frame = 0
-                    self.sound.play("gameover")
-                    if self.score > self.high_score:
-                        self.high_score = self.score
-                        self._save_high_score()
-                        self.sound.speak(f"Game over! New high score {self.score}!", speed=130, pitch=40)
-                    else:
-                        self.sound.speak(f"Game over! Score {self.score}", speed=130, pitch=40)
-                    break
+            # Check collisions (only if not invincible)
+            if self.invincible_frames == 0:
+                dino_box = self.dino.get_hitbox()
+                for obs in self.obstacles:
+                    if self.check_collision(dino_box, obs.get_hitbox()):
+                        self.lives -= 1
+                        self.obstacles.remove(obs)  # Remove the obstacle that hit
+
+                        if self.lives <= 0:
+                            # Game over
+                            self.state = 'gameover'
+                            self.animation_frame = 0
+                            self.sound.play("gameover")
+                            if self.score > self.high_score:
+                                self.high_score = self.score
+                                self._save_high_score()
+                                self.sound.speak(f"Game over! New high score {self.score}!", speed=130, pitch=40)
+                            else:
+                                self.sound.speak(f"Game over! Score {self.score}", speed=130, pitch=40)
+                        else:
+                            # Lost a life but continue
+                            self.invincible_frames = 120  # 2 seconds invincibility
+                            self.sound.play("gameover")
+                            self.sound.speak(f"{self.lives} lives left!", speed=150, pitch=50)
+                        break
 
             # Update ground scroll
             self.ground_offset += self.speed
@@ -1132,15 +2135,25 @@ class Game:
 
             # Increase difficulty gradually
             old_speed = self.speed
-            self.speed = self.INITIAL_SPEED + self.score // 100 * 0.12  # Tuned for 60fps
-            if self.speed > self.MAX_SPEED:
-                self.speed = self.MAX_SPEED
+            diff = self._get_difficulty_params()
+            base_speed = self.INITIAL_SPEED + self.score // 100 * 0.10
+            self.speed = min(base_speed * diff['speed_mult'], self.MAX_SPEED)
+
             # Play speedup sound when speed increases
             if self.speed > old_speed and old_speed > self.INITIAL_SPEED:
                 self.sound.play("speedup")
 
+            self.animation_frame += 1
+
         elif self.state == 'gameover':
             self.animation_frame += 1
+            # X button exits to menu immediately
+            if self.input.back_to_menu:
+                self.state = 'start'
+                self.animation_frame = 0
+                random.shuffle(self.scene_order)
+                self.current_scene_idx = -1
+                return True
             if jump:
                 self.state = 'playing'
                 self.reset()
@@ -1151,6 +2164,77 @@ class Game:
                 # Reshuffle scenes for fresh start screen
                 random.shuffle(self.scene_order)
                 self.current_scene_idx = -1  # Reset to -1 so first scene triggers speech
+
+        elif self.state == 'pong':
+            # X button exits to menu
+            if self.input.back_to_menu:
+                self.state = 'start'
+                self.animation_frame = 0
+                return True
+
+            # Each controller's RIGHT stick controls its own paddle (analog values 0-255)
+            # Also Y button = up, A button = down
+            self.pong.update(
+                self.input.p1_rstick_y,  # P1 analog stick (0-255)
+                self.input.p2_rstick_y,  # P2 analog stick (0-255)
+                self.input.p1_btn_up, self.input.p1_btn_down,
+                self.input.p2_btn_up, self.input.p2_btn_down
+            )
+
+            # Check if game is over and user wants to return
+            if self.pong.state != 'playing':
+                if jump or self.input.select_pong:
+                    if self.pong.frame >= 180:  # 3 seconds after game ends
+                        self.state = 'start'
+                        self.animation_frame = 0
+
+        elif self.state == 'snake':
+            # X button exits to menu
+            if self.input.back_to_menu:
+                self.state = 'start'
+                self.animation_frame = 0
+                return True
+
+            # Get directional input from RIGHT joystick or D-pad
+            # rstick values are 0-255, center=128, so use thresholds
+            up = self.input.rstick_y < 80 or self.input.p1_up
+            down = self.input.rstick_y > 176 or self.input.p1_down
+            left = self.input.rstick_x < 80 or self.input.stick_x < 0
+            right = self.input.rstick_x > 176 or self.input.stick_x > 0
+
+            self.snake.update(up, down, left, right)
+
+            # Restart or return to menu on game over
+            if self.snake.state == 'gameover':
+                if jump:
+                    self.snake.reset()
+                elif self.snake.frame >= 180:  # Auto-return after 3 seconds
+                    self.state = 'start'
+                    self.animation_frame = 0
+
+        elif self.state == 'draw':
+            # X button exits to menu
+            if self.input.back_to_menu:
+                self.state = 'start'
+                self.animation_frame = 0
+                return True
+
+            # Auto-return to menu if idle for 15 seconds
+            if self.draw.is_idle():
+                self.state = 'start'
+                self.animation_frame = 0
+                return True
+
+            # A button clears canvas
+            if jump:
+                self.draw.clear_canvas()
+
+            # B button undoes last pixel
+            if duck:
+                self.draw.undo()
+
+            # Update draw game with RIGHT joystick and trigger button
+            self.draw.update(self.input.rstick_x, self.input.rstick_y, self.input.draw_button)
 
         return True
 
@@ -1164,8 +2248,93 @@ class Game:
             self._render_game()
         elif self.state == 'gameover':
             self._render_gameover()
+        elif self.state == 'volcano':
+            self._render_volcano()
+        elif self.state == 'paused':
+            self._render_paused()
+        elif self.state == 'pong':
+            self.pong.render()
+            self.display.render()
+            return
+        elif self.state == 'snake':
+            self.snake.render()
+            self.display.render()
+            return
+        elif self.state == 'draw':
+            self.draw.render()
+            self.display.render()
+            return
+
+        # Apply screen invert if active
+        if self.invert_screen:
+            self._invert_buffer()
 
         self.display.render()
+
+    def _invert_buffer(self):
+        """Invert all pixels in the display buffer."""
+        for i in range(len(self.display.buffer)):
+            self.display.buffer[i] = ~self.display.buffer[i] & 0xFF
+
+    def _render_volcano(self):
+        """Render volcano eruption animation."""
+        # Draw volcano base at bottom center
+        volcano_x = (WIDTH - 9) // 2
+        volcano_y = GROUND_Y - 4
+
+        for row_idx, row in enumerate(VOLCANO_BASE):
+            for col_idx, char in enumerate(row):
+                if char == 'X':
+                    self.display.set_pixel(volcano_x + col_idx, volcano_y + row_idx)
+
+        # Animate lava particles rising
+        frame = self.volcano_frame
+        for i in range(5):
+            # Multiple particles at different heights
+            particle_y = volcano_y - 2 - ((frame + i * 20) % 15)
+            particle_x = volcano_x + 4 + random.randint(-2, 2)
+            if 0 <= particle_y < HEIGHT:
+                self.display.set_pixel(particle_x, particle_y)
+
+        # Draw explosion particles
+        if frame < 60:
+            for _ in range(3):
+                px = volcano_x + 4 + random.randint(-6, 6)
+                py = volcano_y - 3 - random.randint(0, 8)
+                if 0 <= px < WIDTH and 0 <= py < HEIGHT:
+                    self.display.set_pixel(px, py)
+
+        # Text
+        if frame < 90:
+            self.display.draw_centered_text(1, "VOLCANO!")
+        else:
+            self.display.draw_centered_text(1, "NEW ENEMIES!")
+
+        # Show score
+        score_str = str(self.score)
+        self.display.draw_text(WIDTH - len(score_str) * 4 - 2, 8, score_str)
+
+    def _render_paused(self):
+        """Render paused screen (controller disconnected)."""
+        # Flashing text
+        if (self.animation_frame // 30) % 2 == 0:
+            self.display.draw_centered_text(2, "CONTROLLER")
+            self.display.draw_centered_text(8, "DISCONNECTED")
+        else:
+            self.display.draw_centered_text(5, "RECONNECT")
+
+        # Show current score
+        score_str = f"SCORE {self.score}"
+        self.display.draw_centered_text(14, score_str)
+
+    def _draw_lives(self):
+        """Draw lives as hearts in top-left corner."""
+        for i in range(self.lives):
+            x = 2 + i * 6
+            for row_idx, row in enumerate(HEART):
+                for col_idx, char in enumerate(row):
+                    if char == 'X':
+                        self.display.set_pixel(x + col_idx, 1 + row_idx)
 
     def _play_anim_sound(self, sound_name):
         """Play animation sound only once per frame."""
@@ -1174,35 +2343,22 @@ class Game:
             self.last_sound_frame = self.animation_frame
 
     def _render_start_screen(self):
-        """Render animated start screen with anime-style face and varied animations."""
-        # Different animation scenes - 120 frames per scene at 60fps = 2 seconds each
-        cycle = self.animation_frame % 120
+        """Render animated start screen with anime-style face and smooth animations."""
+        # Different animation scenes - 240 frames per scene at 60fps = 4 seconds each
+        cycle = self.animation_frame % 240
+        t = cycle / 240.0  # Normalized time 0-1 for smooth math
 
         # Check if we need to advance to next scene
-        new_scene_idx = (self.animation_frame // 120) % 16
+        new_scene_idx = (self.animation_frame // 240) % 16
         if new_scene_idx != self.current_scene_idx:
             self.current_scene_idx = new_scene_idx
-            # Reshuffle when we complete all scenes
             if new_scene_idx == 0:
                 random.shuffle(self.scene_order)
-            # Speak the message for the new scene
             scene_messages = {
-                0: "Press to play!",
-                1: "Wake me up!",
-                2: "Play with me!",
-                3: "Peek a boo!",
-                4: "Press to play!",
-                5: "Awesome!",
-                6: "I see you!",
-                7: "Press to play!",
-                8: "Hypnotizing!",
-                9: "Boing boing!",
-                10: "Interesting!",
-                11: "Come play!",
-                12: "So nervous!",
-                13: "Where is it?",
-                14: "Hey there!",
-                15: "Press to play!",
+                0: "A for Dino!", 1: "Wake me up!", 2: "Y for Snake!", 3: "B for Pong!",
+                4: "A for Dino!", 5: "Start for Draw!", 6: "I see you!", 7: "B for Pong!",
+                8: "Y for Snake!", 9: "Boing boing!", 10: "Start for Draw!", 11: "Come play!",
+                12: "So nervous!", 13: "X to exit!", 14: "Hey there!", 15: "Choose game!",
             }
             scene = self.scene_order[self.current_scene_idx]
             if scene in scene_messages:
@@ -1210,11 +2366,232 @@ class Game:
 
         big_cycle = self.scene_order[self.current_scene_idx]
 
-        eye_left_x = 32
-        eye_right_x = 88
-        eye_y = 1
+        eye_left_x, eye_right_x, eye_y = 32, 88, 1
+
+        # Easing functions for smooth motion
+        def ease_in_out(x):
+            return 0.5 - 0.5 * math.cos(x * math.pi)
+
+        def ease_out(x):
+            return math.sin(x * math.pi * 0.5)
+
+        # Target values for this frame
+        target_px, target_py = 0.0, 0.0
+        target_eye_l, target_eye_r = 1.0, 1.0  # 0=closed, 0.5=half, 1=open, 1.5=wide
+        msg = "PRESS TO PLAY!"
+        special_render = None
+
+        if big_cycle == 0:
+            # Smooth looking around with sine curves
+            if t == 0: self._play_anim_sound("wink")
+            # Smooth circular gaze pattern
+            target_px = 2.5 * math.sin(t * math.pi * 4)
+            target_py = 2.0 * math.cos(t * math.pi * 2)
+            # Occasional blinks
+            if 0.15 < t < 0.22 or 0.55 < t < 0.62:
+                target_eye_l = target_eye_r = 0.0
+
+        elif big_cycle == 1:
+            # Sleepy then wake up - smooth easing
+            if t == 0: self._play_anim_sound("sleepy")
+            if t < 0.3:
+                target_eye_l = target_eye_r = 0.5
+                target_py = 2.0 * ease_in_out(t / 0.3)
+            elif t < 0.6:
+                target_eye_l = target_eye_r = 0.0
+                target_py = 2.0
+            elif t < 0.85:
+                p = (t - 0.6) / 0.25
+                target_eye_l = target_eye_r = 0.5 * ease_out(p)
+                target_py = 2.0 * (1 - p)
+            else:
+                p = (t - 0.85) / 0.15
+                target_eye_l = target_eye_r = 1.0 + 0.5 * ease_out(p)
+                target_py = -2.0 * ease_out(p)
+            msg = "WAKE ME UP!"
+
+        elif big_cycle == 2:
+            # Smooth eye roll circle using sine/cosine
+            if t == 0: self._play_anim_sound("look")
+            angle = t * math.pi * 3  # 1.5 full rotations
+            target_px = 2.5 * math.sin(angle)
+            target_py = 2.0 * math.cos(angle)
+            if 0.4 < t < 0.5:
+                target_eye_l = target_eye_r = 0.0
+            msg = "PLAY WITH ME!"
+
+        elif big_cycle == 3:
+            # Peek-a-boo with smooth transitions
+            if t == 0: self._play_anim_sound("peek")
+            if t < 0.2:
+                target_px = 2.0 * math.sin(t * math.pi * 2)
+            elif t < 0.3:
+                p = (t - 0.2) / 0.1
+                target_eye_l = target_eye_r = 1.0 - p
+            elif t < 0.45:
+                target_eye_l = target_eye_r = 0.0
+            elif t < 0.55:
+                # Right eye peeks
+                p = (t - 0.45) / 0.1
+                target_eye_r = p
+                target_px = -2.0 * p
+            elif t < 0.7:
+                target_eye_l = 0.0
+                target_px = -2.0
+            elif t < 0.8:
+                p = (t - 0.7) / 0.1
+                target_eye_l = p
+                target_px = 2.0 * (p - 1)
+            else:
+                p = (t - 0.8) / 0.2
+                target_px = 2.0 * (1 - p) * math.cos(p * math.pi)
+            msg = "PEEK A BOO!"
+
+        elif big_cycle == 4:
+            # Dizzy spiral
+            if t == 0: self._play_anim_sound("dizzy")
+            special_render = 'dizzy' if t < 0.75 else None
+            if t >= 0.75:
+                p = (t - 0.75) / 0.25
+                target_eye_l = target_eye_r = 0.5 + 0.5 * ease_out(p)
+                target_px = 2.0 * math.sin(p * math.pi * 4) * (1 - p)
+
+        elif big_cycle == 5:
+            # Smooth side to side with blinks
+            if t == 0: self._play_anim_sound("blink")
+            target_px = 2.5 * math.sin(t * math.pi * 2)
+            target_py = 0.5 * math.sin(t * math.pi * 4)
+            if 0.25 < t < 0.32 or 0.75 < t < 0.82:
+                target_eye_l = target_eye_r = 0.0
+            msg = "AWESOME!"
+
+        elif big_cycle == 6:
+            # Suspicious scanning
+            if t == 0: self._play_anim_sound("look")
+            target_px = 2.5 * math.sin(t * math.pi * 1.5 - math.pi/2)
+            if 0.4 < t < 0.7:
+                target_eye_l = target_eye_r = 0.5
+            if t > 0.85:
+                target_eye_l = 0.0
+            msg = "I SEE YOU!"
+
+        elif big_cycle == 7:
+            # Crazy rapid movement with alternating blinks
+            if t == 0: self._play_anim_sound("dizzy")
+            speed = 8 + 4 * math.sin(t * math.pi)  # Variable speed
+            target_px = 2.5 * math.sin(t * math.pi * speed)
+            target_py = 2.0 * math.cos(t * math.pi * speed * 0.7)
+            blink_phase = (t * 10) % 1
+            if blink_phase < 0.3:
+                target_eye_l = 0.0
+            elif 0.5 < blink_phase < 0.8:
+                target_eye_r = 0.0
+
+        elif big_cycle == 8:
+            # Hypnotic opposite direction eyes
+            if t == 0: self._play_anim_sound("hypno")
+            angle = t * math.pi * 4
+            px = 2.5 * math.sin(angle)
+            py = 2.0 * math.cos(angle)
+            special_render = ('hypno', px, py)
+            msg = "HYPNOTIZING!"
+
+        elif big_cycle == 9:
+            # Bouncy with smooth sine bounce
+            if t == 0: self._play_anim_sound("bounce")
+            bounce_t = t * 3  # 3 bounces
+            target_py = 2.5 * abs(math.sin(bounce_t * math.pi))
+            target_px = 2.0 * math.sin(t * math.pi * 2)
+            if 0.2 < (t * 3 % 1) < 0.4:
+                target_eye_l = target_eye_r = 1.5
+            msg = "BOING BOING!"
+
+        elif big_cycle == 10:
+            # Reading with smooth scanning
+            if t == 0: self._play_anim_sound("look")
+            line = int(t * 3) % 2
+            line_t = (t * 3) % 1
+            target_px = -2.5 + 5.0 * ease_in_out(line_t)
+            target_py = 1.0 + line * 1.5
+            if 0.45 < t < 0.55:
+                target_eye_l = target_eye_r = 0.0
+            msg = "INTERESTING!"
+
+        elif big_cycle == 11:
+            # Alternating winks with smooth pupil
+            if t == 0: self._play_anim_sound("flirt")
+            target_px = 2.5 * math.sin(t * math.pi * 2)
+            if 0.15 < t < 0.35:
+                target_eye_l = 0.0
+            elif 0.55 < t < 0.75:
+                target_eye_r = 0.0
+            elif t > 0.85:
+                target_eye_l = target_eye_r = 0.5
+            msg = "COME PLAY!"
+
+        elif big_cycle == 12:
+            # Nervous trembling with small rapid movements
+            if t == 0: self._play_anim_sound("nervous")
+            shake = 0.8 * math.sin(t * math.pi * 30)  # Fast shake
+            target_px = shake
+            target_py = shake * 0.5
+            if 0.4 < t < 0.6:
+                target_eye_l = target_eye_r = 1.5
+            msg = "SO NERVOUS!"
+
+        elif big_cycle == 13:
+            # Searching with smooth scanning pattern
+            if t == 0: self._play_anim_sound("search")
+            target_px = 2.5 * math.sin(t * math.pi * 5)
+            target_py = 2.0 * math.sin(t * math.pi * 3 + math.pi/4)
+            if 0.2 < t < 0.35 or 0.6 < t < 0.75:
+                target_eye_l = target_eye_r = 1.5
+            msg = "WHERE IS IT?"
+
+        elif big_cycle == 14:
+            # Flirty with playful movements
+            if t == 0: self._play_anim_sound("flirt")
+            target_px = 2.0 * math.sin(t * math.pi * 3)
+            target_py = 1.5 * math.cos(t * math.pi * 2)
+            # Quick blinks
+            blink_times = [0.12, 0.28, 0.45]
+            for bt in blink_times:
+                if bt < t < bt + 0.06:
+                    target_eye_l = target_eye_r = 0.0
+            if t > 0.7:
+                target_eye_l = target_eye_r = 0.5
+            msg = "HEY THERE!"
+
+        elif big_cycle == 15:
+            # Figure 8 with smooth lissajous curve
+            if t == 0: self._play_anim_sound("hypno")
+            target_px = 2.5 * math.sin(t * math.pi * 4)
+            target_py = 2.0 * math.sin(t * math.pi * 2)
+            if 0.4 < t < 0.5:
+                target_eye_l = target_eye_r = 0.0
+
+        # Smooth interpolation to target positions
+        smooth = 0.12
+        self.smooth_pupil_x += (target_px - self.smooth_pupil_x) * smooth
+        self.smooth_pupil_y += (target_py - self.smooth_pupil_y) * smooth
+        self.smooth_eye_open_l += (target_eye_l - self.smooth_eye_open_l) * smooth * 2
+        self.smooth_eye_open_r += (target_eye_r - self.smooth_eye_open_r) * smooth * 2
+
+        # Convert smooth eye values to states
+        def eye_val_to_state(v):
+            if v < 0.25: return 'closed'
+            elif v < 0.75: return 'half'
+            elif v < 1.25: return 'open'
+            else: return 'wide'
+
+        left_state = eye_val_to_state(self.smooth_eye_open_l)
+        right_state = eye_val_to_state(self.smooth_eye_open_r)
+        pupil_dx = int(round(self.smooth_pupil_x))
+        pupil_dy = int(round(self.smooth_pupil_y))
 
         def draw_anime_eye(cx, cy, state, pdx, pdy):
+            pdx = max(-3, min(3, pdx))
+            pdy = max(-3, min(3, pdy))
             if state == 'closed':
                 for dx in range(-4, 5):
                     self.display.set_pixel(cx + dx, cy + 4)
@@ -1249,7 +2626,7 @@ class Game:
                             self.display.set_pixel(cx - 3 + col_idx, cy + 1 + row_idx)
             elif state == 'hidden':
                 pass
-            else:
+            else:  # open
                 for dx in range(-3, 4):
                     self.display.set_pixel(cx + dx, cy)
                 self.display.set_pixel(cx - 4, cy + 1)
@@ -1266,437 +2643,27 @@ class Game:
                         self.display.set_pixel(cx + pdx + dx, cy + 4 + pdy + dy)
                 self.display.set_pixel(cx + pdx - 1, cy + 3 + pdy, 0)
 
-        left_state = 'open'
-        right_state = 'open'
-        pupil_dx, pupil_dy = 0, 0
-        msg = ""
-
-        if big_cycle == 0:
-            # Normal looking around - with very smooth transitions
-            c = cycle
-            if c == 0: self._play_anim_sound("wink")
-
-            if c in range(18, 26):
-                left_state = 'closed'
-                right_state = 'closed'
-            elif c in range(50, 60):
-                left_state = 'closed'
-            elif c in range(90, 100):
-                right_state = 'closed'
-
-            # Very smooth pupil movement with many intermediate positions
-            if c < 5: pupil_dx, pupil_dy = 0, 0
-            elif c < 8: pupil_dx, pupil_dy = 1, 0
-            elif c < 18: pupil_dx, pupil_dy = 2, 0  # Right
-            elif c < 35: pupil_dx, pupil_dy = 2, 0  # Stay right
-            elif c < 38: pupil_dx, pupil_dy = 1, 0
-            elif c < 41: pupil_dx, pupil_dy = 0, 0
-            elif c < 44: pupil_dx, pupil_dy = 0, -1
-            elif c < 50: pupil_dx, pupil_dy = 0, -2  # Up
-            elif c < 65: pupil_dx, pupil_dy = 0, -2  # Stay up
-            elif c < 68: pupil_dx, pupil_dy = -1, -1
-            elif c < 71: pupil_dx, pupil_dy = -2, -1
-            elif c < 83: pupil_dx, pupil_dy = -2, 0  # Left
-            elif c < 86: pupil_dx, pupil_dy = -1, 0
-            elif c < 89: pupil_dx, pupil_dy = 0, 0
-            elif c < 100: pupil_dx, pupil_dy = 0, 0  # Center
-            elif c < 103: pupil_dx, pupil_dy = 0, 1
-            elif c < 110: pupil_dx, pupil_dy = 0, 2  # Down
-            elif c < 113: pupil_dx, pupil_dy = 0, 1
-            else: pupil_dx, pupil_dy = 0, 0
-
-            msg = "PRESS TO PLAY!"
-
-        elif big_cycle == 1:
-            # Sleepy then wake up
-            c = cycle
-            if c == 0: self._play_anim_sound("sleepy")
-
-            if c < 38:
-                left_state = 'half'
-                right_state = 'half'
-            elif c < 75:
-                left_state = 'closed'
-                right_state = 'closed'
-            elif c < 98:
-                left_state = 'half'
-                right_state = 'half'
-            else:
-                left_state = 'wide'
-                right_state = 'wide'
-
-            # Smooth down position with transitions
-            if c < 15: pupil_dx, pupil_dy = 0, 0
-            elif c < 20: pupil_dx, pupil_dy = 0, 1
-            elif c < 38: pupil_dx, pupil_dy = 0, 2
-            elif c < 98: pupil_dx, pupil_dy = 0, 1
-            elif c < 102: pupil_dx, pupil_dy = 0, 0  # Alert!
-            else: pupil_dx, pupil_dy = 0, -1  # Surprised look up
-
-            msg = "WAKE ME UP!"
-
-        elif big_cycle == 2:
-            # Full eye roll circle - very smooth
-            c = cycle
-            if c == 0: self._play_anim_sound("look")
-
-            if c in range(54, 64):
-                left_state = 'closed'
-                right_state = 'closed'
-
-            # Rolling in a circle with many intermediate frames
-            if c < 5: pupil_dx, pupil_dy = 0, -2  # Up
-            elif c < 8: pupil_dx, pupil_dy = 1, -2  # Up to up-right
-            elif c < 12: pupil_dx, pupil_dy = 2, -2  # Up-right
-            elif c < 15: pupil_dx, pupil_dy = 2, -1
-            elif c < 20: pupil_dx, pupil_dy = 2, 0  # Right
-            elif c < 23: pupil_dx, pupil_dy = 2, 1
-            elif c < 28: pupil_dx, pupil_dy = 2, 2  # Down-right
-            elif c < 31: pupil_dx, pupil_dy = 1, 2
-            elif c < 36: pupil_dx, pupil_dy = 0, 2  # Down
-            elif c < 39: pupil_dx, pupil_dy = -1, 2
-            elif c < 44: pupil_dx, pupil_dy = -2, 2  # Down-left
-            elif c < 47: pupil_dx, pupil_dy = -2, 1
-            elif c < 54: pupil_dx, pupil_dy = -2, 0  # Left (then blink)
-            elif c < 69: pupil_dx, pupil_dy = 0, 0  # Center (blink)
-            elif c < 72: pupil_dx, pupil_dy = -1, 0
-            elif c < 77: pupil_dx, pupil_dy = -2, 0  # Left
-            elif c < 80: pupil_dx, pupil_dy = -2, -1
-            elif c < 85: pupil_dx, pupil_dy = -2, -2  # Up-left
-            elif c < 88: pupil_dx, pupil_dy = -1, -2
-            elif c < 93: pupil_dx, pupil_dy = 0, -2  # Up
-            elif c < 96: pupil_dx, pupil_dy = 1, -2
-            elif c < 101: pupil_dx, pupil_dy = 2, -2  # Up-right
-            elif c < 104: pupil_dx, pupil_dy = 2, -1
-            elif c < 109: pupil_dx, pupil_dy = 2, 0  # Right
-            elif c < 112: pupil_dx, pupil_dy = 1, 0
-            else: pupil_dx, pupil_dy = 0, 0  # Center
-
-            msg = "PLAY WITH ME!"
-
-        elif big_cycle == 3:
-            # Hide and seek
-            c = cycle
-            if c == 0: self._play_anim_sound("peek")
-
-            if c < 24:
-                pass
-            elif c < 39:
-                left_state = 'closed'
-                right_state = 'closed'
-            elif c < 50:
-                left_state = 'hidden'
-                right_state = 'hidden'
-            elif c < 60:
-                left_state = 'hidden'
-                pupil_dx, pupil_dy = -1, 0
-            elif c < 75:
-                left_state = 'hidden'
-                pupil_dx, pupil_dy = -2, 0
-            elif c < 87:
-                left_state = 'hidden'
-                right_state = 'hidden'
-            elif c < 97:
-                right_state = 'hidden'
-                pupil_dx, pupil_dy = 1, 0
-            elif c < 105:
-                right_state = 'hidden'
-                pupil_dx, pupil_dy = 2, 0
-            elif c < 112:
-                pupil_dx, pupil_dy = 1, 0
-            else:
-                pupil_dx, pupil_dy = 0, 0
-
-            msg = "PEEK A BOO!"
-
-        elif big_cycle == 4:
-            # Dizzy
-            c = cycle
-            if c == 0: self._play_anim_sound("dizzy")
-
-            if c < 98:
-                left_state = 'dizzy'
-                right_state = 'dizzy'
-            elif c < 105:
-                left_state = 'half'
-                right_state = 'half'
-                pupil_dx, pupil_dy = 1, 1
-            elif c < 112:
-                pupil_dx, pupil_dy = -1, 0
-            else:
-                pupil_dx, pupil_dy = 0, 0
-
-            msg = "PRESS TO PLAY!"
-
-        elif big_cycle == 5:
-            # Cross-eyed then opposite - with smooth transitions
-            c = cycle
-            if c == 0: self._play_anim_sound("blink")
-
-            if c in range(35, 45):
-                left_state = 'closed'
-                right_state = 'closed'
-            elif c in range(83, 93):
-                left_state = 'closed'
-                right_state = 'closed'
-
-            # Very smooth eye movement
-            if c < 5: pupil_dx, pupil_dy = 0, 0
-            elif c < 10: pupil_dx, pupil_dy = 1, 0
-            elif c < 35: pupil_dx, pupil_dy = 2, 0  # Right
-            elif c < 50: pupil_dx, pupil_dy = 1, 0
-            elif c < 55: pupil_dx, pupil_dy = 0, 0  # Center
-            elif c < 60: pupil_dx, pupil_dy = -1, 0
-            elif c < 83: pupil_dx, pupil_dy = -2, 0  # Left
-            elif c < 97: pupil_dx, pupil_dy = -1, -1
-            elif c < 105: pupil_dx, pupil_dy = 0, -2  # Up
-            elif c < 112: pupil_dx, pupil_dy = 0, -1
-            else: pupil_dx, pupil_dy = 0, 0
-
-            msg = "AWESOME!"
-
-        elif big_cycle == 6:
-            # Suspicious - with very smooth transitions
-            c = cycle
-            if c == 0: self._play_anim_sound("look")
-            # Smooth left to right
-            if c < 5: pupil_dx, pupil_dy = 0, 0
-            elif c < 10: pupil_dx, pupil_dy = -1, 0
-            elif c < 25: pupil_dx, pupil_dy = -2, 0
-            elif c < 30: pupil_dx, pupil_dy = -1, 0
-            elif c < 35: pupil_dx, pupil_dy = 0, 0
-            elif c < 40: pupil_dx, pupil_dy = 1, 0
-            elif c < 55: pupil_dx, pupil_dy = 2, 0
-            elif c < 70:
-                left_state = 'half'
-                right_state = 'half'
-                pupil_dx, pupil_dy = 2, 0
-            elif c < 86:
-                left_state = 'half'
-                right_state = 'half'
-                pupil_dx, pupil_dy = 1, 0
-            elif c < 97: pupil_dx, pupil_dy = 2, 1
-            elif c < 107: pupil_dx, pupil_dy = 1, 1
-            elif c < 115:
-                left_state = 'closed'
-                pupil_dx, pupil_dy = -1, 0
-            else:
-                left_state = 'closed'
-                pupil_dx, pupil_dy = -2, 0
-
-            msg = "I SEE YOU!"
-
-        elif big_cycle == 7:
-            # Crazy rapid - very smooth with many positions
-            c = cycle
-            if c == 0: self._play_anim_sound("dizzy")
-
-            if c % 12 < 5:
-                left_state = 'closed'
-            if (c + 6) % 12 < 5:
-                right_state = 'closed'
-            # Many positions for very smooth crazy movement
-            positions = [
-                (0, 0), (0, -1), (1, -1), (1, -2), (2, -1), (2, 0), (1, 0),
-                (1, 1), (0, 1), (-1, 1), (-1, 2), (-2, 1), (-2, 0), (-1, 0),
-                (-1, -1), (0, -1), (0, -2), (1, -2), (2, -2), (2, -1),
-                (1, 0), (0, 0), (0, 1), (0, 2), (-1, 2), (-2, 2), (-2, 1),
-                (-2, 0), (-1, -1), (0, -1)
-            ]
-            pupil_dx, pupil_dy = positions[(c // 4) % len(positions)]
-
-            msg = "PRESS TO PLAY!"
-
-        elif big_cycle == 8:
-            # Hypnotic - eyes move in opposite directions
-            c = cycle
-            if c == 0: self._play_anim_sound("hypno")
-            # Smooth circular motion, eyes go opposite ways
-            angle_steps = [
-                (0, -2), (1, -2), (2, -1), (2, 0), (2, 1), (1, 2), (0, 2),
-                (-1, 2), (-2, 1), (-2, 0), (-2, -1), (-1, -2)
-            ]
-            idx = (c // 5) % len(angle_steps)
-            pupil_dx, pupil_dy = angle_steps[idx]
-            # Draw eyes with opposite pupil directions
+        # Handle special render modes
+        if special_render == 'dizzy':
+            draw_anime_eye(eye_left_x, eye_y, 'dizzy', 0, 0)
+            draw_anime_eye(eye_right_x, eye_y, 'dizzy', 0, 0)
+        elif isinstance(special_render, tuple) and special_render[0] == 'hypno':
+            _, px, py = special_render
+            pdx, pdy = int(round(px)), int(round(py))
+            draw_anime_eye(eye_left_x, eye_y, left_state, pdx, pdy)
+            draw_anime_eye(eye_right_x, eye_y, right_state, -pdx, -pdy)
+        else:
             draw_anime_eye(eye_left_x, eye_y, left_state, pupil_dx, pupil_dy)
-            draw_anime_eye(eye_right_x, eye_y, right_state, -pupil_dx, -pupil_dy)
-            self.display.draw_centered_text(13, "HYPNOTIZING!")
-            return
+            draw_anime_eye(eye_right_x, eye_y, right_state, pupil_dx, pupil_dy)
 
-        elif big_cycle == 9:
-            # Bouncy - eyes look up and down like following a ball
-            c = cycle
-            if c == 0: self._play_anim_sound("bounce")
-
-            if c in range(25, 35):
-                left_state = 'wide'
-                right_state = 'wide'
-            elif c in range(75, 85):
-                left_state = 'wide'
-                right_state = 'wide'
-
-            # Bouncy movement with smooth transitions
-            bounce = [
-                (0, -2), (0, -2), (0, -1), (0, 0), (0, 1), (0, 2), (0, 2),
-                (0, 2), (0, 1), (0, 0), (0, -1), (0, -2)
-            ]
-            idx = (c // 5) % len(bounce)
-            pupil_dx, pupil_dy = bounce[idx]
-
-            # Add horizontal drift
-            if c < 40:
-                pupil_dx = -1
-            elif c < 80:
-                pupil_dx = 1
-            else:
-                pupil_dx = 0
-
-            msg = "BOING BOING!"
-
-        elif big_cycle == 10:
-            # Reading - eyes scan left to right like reading text
-            c = cycle
-            if c == 0: self._play_anim_sound("look")
-
-            if c in range(55, 65):
-                left_state = 'closed'
-                right_state = 'closed'
-
-            # Reading motion - left to right, then jump back
-            read_positions = [
-                (-2, 1), (-1, 1), (0, 1), (1, 1), (2, 1),  # Read line
-                (2, 1), (1, 1), (0, 1),  # Slight back
-                (-2, 2), (-1, 2), (0, 2), (1, 2), (2, 2),  # Next line
-            ]
-            idx = (c // 6) % len(read_positions)
-            if c < 55 or c >= 65:
-                pupil_dx, pupil_dy = read_positions[idx]
-            else:
-                pupil_dx, pupil_dy = 0, 0
-
-            msg = "INTERESTING!"
-
-        elif big_cycle == 11:
-            # Alternating winks with smooth pupil
-            c = cycle
-            if c == 0: self._play_anim_sound("flirt")
-
-            # Wink pattern
-            if c < 20:
-                pass  # Both open
-            elif c < 35:
-                left_state = 'closed'
-                pupil_dx, pupil_dy = 2, 0
-            elif c < 50:
-                pupil_dx, pupil_dy = 1, 0
-            elif c < 60:
-                pupil_dx, pupil_dy = 0, 0
-            elif c < 75:
-                right_state = 'closed'
-                pupil_dx, pupil_dy = -2, 0
-            elif c < 90:
-                pupil_dx, pupil_dy = -1, 0
-            elif c < 100:
-                pupil_dx, pupil_dy = 0, 1
-            elif c < 110:
-                left_state = 'half'
-                right_state = 'half'
-                pupil_dx, pupil_dy = 0, 0
-            else:
-                pupil_dx, pupil_dy = 0, -1
-
-            msg = "COME PLAY!"
-
-        elif big_cycle == 12:
-            # Shaking/Trembling - nervous shaking eyes
-            c = cycle
-            if c == 0: self._play_anim_sound("nervous")
-
-            if c in range(60, 75):
-                left_state = 'wide'
-                right_state = 'wide'
-
-            # Shaky nervous movement
-            shake = [(0, 0), (1, 0), (0, 0), (-1, 0), (0, 1), (0, 0), (0, -1)]
-            idx = (c // 2) % len(shake)
-            pupil_dx, pupil_dy = shake[idx]
-
-            msg = "SO NERVOUS!"
-
-        elif big_cycle == 13:
-            # Searching - looking around frantically
-            c = cycle
-            if c == 0: self._play_anim_sound("search")
-
-            if c in range(30, 40) or c in range(80, 90):
-                left_state = 'wide'
-                right_state = 'wide'
-
-            # Frantic searching pattern
-            search = [
-                (-2, -2), (-1, -1), (0, -2), (1, -1), (2, -2),
-                (2, 0), (2, 2), (1, 1), (0, 2), (-1, 1), (-2, 2),
-                (-2, 0), (-1, -1), (0, 0), (1, -1), (2, 0)
-            ]
-            idx = (c // 4) % len(search)
-            pupil_dx, pupil_dy = search[idx]
-
-            msg = "WHERE IS IT?"
-
-        elif big_cycle == 14:
-            # Flirty - batting eyelashes with playful look
-            c = cycle
-            if c == 0: self._play_anim_sound("flirt")
-
-            # Quick blinks
-            if c in range(15, 20) or c in range(35, 40) or c in range(55, 60):
-                left_state = 'closed'
-                right_state = 'closed'
-            elif c in range(75, 95):
-                left_state = 'half'
-                right_state = 'half'
-
-            # Playful side glances
-            if c < 25:
-                pupil_dx, pupil_dy = 2, 1
-            elif c < 45:
-                pupil_dx, pupil_dy = -2, 1
-            elif c < 65:
-                pupil_dx, pupil_dy = 0, -1
-            elif c < 85:
-                pupil_dx, pupil_dy = 1, 0
-            else:
-                pupil_dx, pupil_dy = -1, 1
-
-            msg = "HEY THERE!"
-
-        elif big_cycle == 15:
-            # Figure 8 - smooth figure 8 pattern
-            c = cycle
-            if c == 0: self._play_anim_sound("hypno")
-
-            if c in range(58, 68):
-                left_state = 'closed'
-                right_state = 'closed'
-
-            # Figure 8 with many intermediate positions
-            fig8 = [
-                (0, -2), (1, -2), (2, -1), (2, 0), (2, 1), (1, 2), (0, 2),
-                (-1, 1), (-2, 0), (-2, -1), (-1, -2), (0, -2),
-                (-1, -2), (-2, -1), (-2, 0), (-2, 1), (-1, 2), (0, 2),
-                (1, 1), (2, 0), (2, -1), (1, -2), (0, -2)
-            ]
-            idx = (c // 3) % len(fig8)
-            if c < 58 or c >= 68:
-                pupil_dx, pupil_dy = fig8[idx]
-            else:
-                pupil_dx, pupil_dy = 0, 0
-
-            msg = "PRESS TO PLAY!"
-
-        draw_anime_eye(eye_left_x, eye_y, left_state, pupil_dx, pupil_dy)
-        draw_anime_eye(eye_right_x, eye_y, right_state, pupil_dx, pupil_dy)
+        # Alternate between scene message and game selection hints
+        cycle_phase = (self.animation_frame // 180) % 6
+        if cycle_phase == 1:
+            msg = "A:DINO  B:PONG"
+        elif cycle_phase == 3:
+            msg = "Y:SNAKE ST:DRAW"
+        elif cycle_phase == 5:
+            msg = "X:EXIT GAME"
 
         self.display.draw_centered_text(13, msg)
 
@@ -1705,12 +2672,16 @@ class Game:
         # Draw solid ground line
         self.display.draw_line(0, GROUND_Y, WIDTH - 1, GROUND_Y)
 
-        # Draw dinosaur
-        self.display.draw_sprite(self.dino.get_sprite(), self.dino.x, int(self.dino.y))
+        # Draw dinosaur (blink when invincible)
+        if self.invincible_frames == 0 or (self.invincible_frames // 4) % 2 == 0:
+            self.display.draw_sprite(self.dino.get_sprite(), self.dino.x, int(self.dino.y))
 
         # Draw obstacles
         for obs in self.obstacles:
             self.display.draw_sprite(obs.get_sprite(), int(obs.x), obs.y)
+
+        # Draw lives (top left)
+        self._draw_lives()
 
         # Draw score (top right)
         score_str = str(self.score)
