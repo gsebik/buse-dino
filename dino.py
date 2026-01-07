@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Dinosaur Game for BUSE 128x19 LED Display
+Dinosaur Game for BUSE 144x19 LED Display
 
 A Chrome-style dinosaur jumping game for the BUSE framebuffer display.
 Supports both framebuffer output and terminal test mode.
@@ -74,6 +74,8 @@ class Sound:
             self._generate_speedup("speedup.wav")  # Speed increase warning
             self._generate_gameover("gameover.wav")  # Classic game over melody
             self._generate_fanfare("start.wav")  # Game start fanfare
+            self._generate_point_lost("point_lost.wav")  # Quick sad sound for losing a point
+            self._generate_hit("hit.wav")  # Quick hit sound for dino losing a life
             # Animation sounds - more expressive
             self._generate_blink("blink.wav")  # Soft blink
             self._generate_wink("wink.wav")  # Playful wink
@@ -91,7 +93,7 @@ class Sound:
             self.enabled = False
 
     def _generate_tone(self, filename, freq, duration, freq_end=None, sample_rate=22050):
-        """Generate a simple tone WAV file."""
+        """Generate a smooth sine tone WAV file."""
         if freq_end is None:
             freq_end = freq
 
@@ -103,14 +105,17 @@ class Sound:
             wav.setsampwidth(2)
             wav.setframerate(sample_rate)
 
+            phase = 0
             for i in range(n_samples):
                 t = i / sample_rate
                 # Linear frequency sweep
                 f = freq + (freq_end - freq) * (i / n_samples)
-                # Generate sample with envelope
+                # Generate smooth sine wave with envelope
                 envelope = min(1.0, min(i, n_samples - i) / (sample_rate * 0.01))
-                sample = int(24000 * envelope * (((int(f * t * 2) % 2) * 2) - 1))
-                wav.writeframes(struct.pack('<h', sample))
+                # Sine wave with slight harmonics for warmth
+                tone = 0.8 * math.sin(2 * math.pi * f * t) + 0.2 * math.sin(4 * math.pi * f * t)
+                sample = int(24000 * envelope * tone)
+                wav.writeframes(struct.pack('<h', max(-32767, min(32767, sample))))
 
     def _generate_cheerful(self, filename, sample_rate=22050):
         """Generate a cheerful arpeggio sound for scoring."""
@@ -133,8 +138,10 @@ class Sound:
                 note_pos = i % int(sample_rate * note_duration)
                 note_len = int(sample_rate * note_duration)
                 envelope = min(1.0, min(note_pos, note_len - note_pos) / (sample_rate * 0.005))
-                sample = int(24000 * envelope * (((int(f * t * 2) % 2) * 2) - 1))
-                wav.writeframes(struct.pack('<h', sample))
+                # Smooth sine wave
+                tone = 0.8 * math.sin(2 * math.pi * f * t) + 0.2 * math.sin(4 * math.pi * f * t)
+                sample = int(24000 * envelope * tone)
+                wav.writeframes(struct.pack('<h', max(-32767, min(32767, sample))))
 
     def _generate_gameover(self, filename, sample_rate=22050):
         """Generate a dramatic game over melody."""
@@ -174,8 +181,10 @@ class Sound:
                         attack = min(1.0, i / (sample_rate * 0.015))
                         decay = max(0.2, 1.0 - (i / note_samples) * 0.6)
                         envelope = attack * decay
-                        sample = int(24000 * envelope * (((int(freq * t * 2) % 2) * 2) - 1))
-                    wav.writeframes(struct.pack('<h', sample))
+                        # Smooth sine wave with harmonics
+                        tone = 0.7 * math.sin(2 * math.pi * freq * t) + 0.3 * math.sin(4 * math.pi * freq * t)
+                        sample = int(24000 * envelope * tone)
+                    wav.writeframes(struct.pack('<h', max(-32767, min(32767, sample))))
                     sample_pos += 1
 
     def _generate_milestone(self, filename, sample_rate=22050):
@@ -207,8 +216,10 @@ class Sound:
                     attack = min(1.0, i / (sample_rate * 0.008))
                     decay = max(0.4, 1.0 - (i / note_samples) * 0.4)
                     envelope = attack * decay
-                    sample = int(24000 * envelope * (((int(freq * t * 2) % 2) * 2) - 1))
-                    wav.writeframes(struct.pack('<h', sample))
+                    # Smooth sine wave
+                    tone = 0.8 * math.sin(2 * math.pi * freq * t) + 0.2 * math.sin(4 * math.pi * freq * t)
+                    sample = int(24000 * envelope * tone)
+                    wav.writeframes(struct.pack('<h', max(-32767, min(32767, sample))))
                     sample_pos += 1
 
     def _generate_speedup(self, filename, sample_rate=22050):
@@ -228,8 +239,10 @@ class Sound:
                 # Accelerating frequency sweep
                 freq = 300 + (800 * progress * progress)
                 envelope = min(1.0, min(i, n_samples - i) / (sample_rate * 0.02))
-                sample = int(20000 * envelope * (((int(freq * t * 2) % 2) * 2) - 1))
-                wav.writeframes(struct.pack('<h', sample))
+                # Smooth sine wave
+                tone = math.sin(2 * math.pi * freq * t)
+                sample = int(20000 * envelope * tone)
+                wav.writeframes(struct.pack('<h', max(-32767, min(32767, sample))))
 
     def _generate_fanfare(self, filename, sample_rate=22050):
         """Generate game start fanfare."""
@@ -257,9 +270,59 @@ class Sound:
                     attack = min(1.0, i / (sample_rate * 0.01))
                     decay = max(0.5, 1.0 - (i / note_samples) * 0.3)
                     envelope = attack * decay
-                    sample = int(24000 * envelope * (((int(freq * t * 2) % 2) * 2) - 1))
-                    wav.writeframes(struct.pack('<h', sample))
+                    # Smooth sine wave
+                    tone = 0.8 * math.sin(2 * math.pi * freq * t) + 0.2 * math.sin(4 * math.pi * freq * t)
+                    sample = int(24000 * envelope * tone)
+                    wav.writeframes(struct.pack('<h', max(-32767, min(32767, sample))))
                     sample_pos += 1
+
+    def _generate_point_lost(self, filename, sample_rate=22050):
+        """Generate a short descending tone for losing a point in pong."""
+        filepath = os.path.join(self.sound_dir, filename)
+        # Quick descending two notes - not as dramatic as game over
+        notes = [(400, 0.1), (250, 0.15)]
+
+        total_duration = sum(d for _, d in notes)
+        total_samples = int(sample_rate * total_duration)
+
+        with wave.open(filepath, 'w') as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(sample_rate)
+
+            sample_pos = 0
+            for freq, duration in notes:
+                note_samples = int(sample_rate * duration)
+                for i in range(note_samples):
+                    t = sample_pos / sample_rate
+                    attack = min(1.0, i / (sample_rate * 0.008))
+                    decay = max(0.3, 1.0 - (i / note_samples) * 0.5)
+                    envelope = attack * decay
+                    tone = math.sin(2 * math.pi * freq * t)
+                    sample = int(20000 * envelope * tone)
+                    wav.writeframes(struct.pack('<h', max(-32767, min(32767, sample))))
+                    sample_pos += 1
+
+    def _generate_hit(self, filename, sample_rate=22050):
+        """Generate a quick hit sound for dino losing a life."""
+        filepath = os.path.join(self.sound_dir, filename)
+        duration = 0.15
+        n_samples = int(sample_rate * duration)
+
+        with wave.open(filepath, 'w') as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(sample_rate)
+
+            for i in range(n_samples):
+                t = i / sample_rate
+                progress = i / n_samples
+                # Descending frequency
+                freq = 500 - 300 * progress
+                envelope = (1 - progress) ** 1.5
+                tone = math.sin(2 * math.pi * freq * t)
+                sample = int(22000 * envelope * tone)
+                wav.writeframes(struct.pack('<h', max(-32767, min(32767, sample))))
 
     def _generate_arpeggio(self, filename, notes, note_duration=0.08, volume=0.3, sample_rate=22050):
         """Generate an arpeggio (sequence of notes) like classic games."""
@@ -404,15 +467,15 @@ class Sound:
 
 
 # Display configuration
-WIDTH, HEIGHT = 128, 19
+WIDTH, HEIGHT = 144, 19
 FB_PATH = "/dev/fb0"
 BYTES_PER_ROW = WIDTH // 8
 BUFFER_SIZE = BYTES_PER_ROW * HEIGHT
 
 # Game physics (tuned for 60fps)
 # Lower gravity = longer air time, higher jump velocity = higher jump
-GRAVITY = 0.12
-JUMP_VELOCITY = -1.45  # Reduced to keep dino on screen (max height ~9 pixels)
+GRAVITY = 0.10  # Reduced for easier jumping (more air time)
+JUMP_VELOCITY = -1.55  # Slightly higher jump for easier obstacle clearing
 GROUND_Y = HEIGHT - 1
 
 # Timing
@@ -689,21 +752,25 @@ class Display:
             self.buffer[i] = 0
 
     def set_pixel(self, x, y, value=1):
-        """Set a pixel in the buffer."""
+        """Set a pixel in the buffer - matches test_pattern.py exactly."""
         if 0 <= x < WIDTH and 0 <= y < HEIGHT:
-            idx = y * BYTES_PER_ROW + (x // 8)
-            mask = 1 << (7 - (x % 8))
+            idx = y * WIDTH + x
+            byte_idx = idx >> 3
+            bit = idx & 7
+            mask = 1 << bit
             if value:
-                self.buffer[idx] |= mask
+                self.buffer[byte_idx] |= mask
             else:
-                self.buffer[idx] &= ~mask
+                self.buffer[byte_idx] &= ~mask
 
     def get_pixel(self, x, y):
         """Get pixel value from buffer."""
         if 0 <= x < WIDTH and 0 <= y < HEIGHT:
-            idx = y * BYTES_PER_ROW + (x // 8)
-            mask = 1 << (7 - (x % 8))
-            return 1 if self.buffer[idx] & mask else 0
+            idx = y * WIDTH + x
+            byte_idx = idx >> 3
+            bit = idx & 7
+            mask = 1 << bit
+            return 1 if self.buffer[byte_idx] & mask else 0
         return 0
 
     def draw_sprite(self, sprite, x, y):
@@ -1387,8 +1454,8 @@ class Dinosaur:
         return DINO_SPRITE_1 if (self.frame // 6) % 2 == 0 else DINO_SPRITE_2
 
     def get_hitbox(self):
-        """Get collision hitbox."""
-        return (self.x + 1, int(self.y) + 1, self.width - 2, self.height - 2)
+        """Get collision hitbox (slightly smaller for more forgiving gameplay)."""
+        return (self.x + 2, int(self.y) + 2, self.width - 4, self.height - 3)
 
 
 class PongGame:
@@ -1402,7 +1469,7 @@ class PongGame:
 
     # Paddle positions - moderate distance apart
     P1_X = 15  # Left paddle
-    P2_X = WIDTH - 17  # Right paddle (x=111 for 128-wide screen)
+    P2_X = WIDTH - 17  # Right paddle
     PLAY_WIDTH = P2_X - P1_X  # Playable area width
 
     def __init__(self, display, sound):
@@ -1505,11 +1572,11 @@ class PongGame:
         # Scoring - ball passes paddle
         if self.ball_x < self.P1_X - 5:
             self.p2_score += 1
-            self.sound.play("gameover")
+            self.sound.play("point_lost")
             self._reset_ball(-1)
         elif self.ball_x > self.P2_X + 5:
             self.p1_score += 1
-            self.sound.play("gameover")
+            self.sound.play("point_lost")
             self._reset_ball(1)
 
         # Check for winner
@@ -1820,8 +1887,8 @@ class DrawGame:
 class Game:
     """Main game controller."""
 
-    INITIAL_SPEED = 0.6  # Tuned for 60fps
-    MAX_SPEED = 2.4  # Tuned for 60fps
+    INITIAL_SPEED = 0.55  # Slightly slower start for easier beginning
+    MAX_SPEED = 2.2  # Slightly lower max for more manageable late game
     HIGH_SCORE_FILE = "/var/lib/dino_highscore"
 
     # Milestone thresholds
@@ -1978,17 +2045,17 @@ class Game:
 
     def _get_difficulty_params(self):
         """Get difficulty parameters based on score."""
-        # Progressive difficulty tiers
+        # Progressive difficulty tiers - more gradual ramp for easier gameplay
         if self.score >= 3000:
-            return {'spawn_min': 0.6, 'spawn_max': 1.0, 'speed_mult': 1.4}
+            return {'spawn_min': 0.7, 'spawn_max': 1.1, 'speed_mult': 1.3}
         elif self.score >= 2000:
-            return {'spawn_min': 0.7, 'spawn_max': 1.2, 'speed_mult': 1.3}
+            return {'spawn_min': 0.8, 'spawn_max': 1.3, 'speed_mult': 1.2}
         elif self.score >= 1000:
-            return {'spawn_min': 0.8, 'spawn_max': 1.5, 'speed_mult': 1.2}
+            return {'spawn_min': 0.9, 'spawn_max': 1.6, 'speed_mult': 1.15}
         elif self.score >= 500:
-            return {'spawn_min': 1.0, 'spawn_max': 1.8, 'speed_mult': 1.1}
+            return {'spawn_min': 1.1, 'spawn_max': 2.0, 'speed_mult': 1.05}
         else:
-            return {'spawn_min': 1.2, 'spawn_max': 2.5, 'speed_mult': 1.0}
+            return {'spawn_min': 1.4, 'spawn_max': 2.8, 'speed_mult': 1.0}
 
     def update(self):
         """Update game logic."""
@@ -2124,7 +2191,7 @@ class Game:
                         else:
                             # Lost a life but continue
                             self.invincible_frames = 120  # 2 seconds invincibility
-                            self.sound.play("gameover")
+                            self.sound.play("hit")
                             self.sound.speak(f"{self.lives} lives left!", speed=150, pitch=50)
                         break
 
